@@ -403,3 +403,83 @@ test("admin invitation creates a real account and cannot be reused", async ({
     await guestContext.close();
   }
 });
+
+test("new company owner creates a private workspace and invites a teammate", async ({
+  browser,
+}) => {
+  const ownerContext = await browser.newContext();
+  const teammateContext = await browser.newContext();
+  const owner = await ownerContext.newPage();
+  const teammate = await teammateContext.newPage();
+  try {
+    await owner.goto("/register");
+    await expect(
+      owner.getByRole("heading", { name: "Create your workspace" }),
+    ).toBeVisible();
+    await owner.getByLabel("Company name").fill("Northstar Labs");
+    await owner.getByLabel("Your name").fill("Avery Owner");
+    await owner.getByLabel("Email address").fill("owner@northstar.demo");
+    await owner.getByLabel("Password", { exact: true }).fill(password);
+    await owner.screenshot({
+      path: `${screenshotDir}/company-registration.png`,
+      fullPage: true,
+    });
+    await owner.getByRole("button", { name: "Create workspace" }).click();
+    await expect(
+      owner.getByRole("heading", { name: "A clear view of what’s next." }),
+    ).toBeVisible();
+    await expect(owner.getByText("Northstar Labs").first()).toBeVisible();
+    expect(await projects(ownerContext)).toEqual([]);
+    expect(
+      (await (await ownerContext.request.get("/api/users")).json()).map(
+        (u: Person) => u.email,
+      ),
+    ).toEqual(["owner@northstar.demo"]);
+    await owner.getByRole("link", { name: "Projects", exact: false }).click();
+    await owner.getByRole("button", { name: "New project" }).click();
+    await owner.getByLabel("Project name").fill("Customer portal");
+    await owner.getByLabel("Project key").fill("WEB");
+    await owner
+      .getByLabel("Description")
+      .fill("A shared place to build the portal.");
+    await owner
+      .getByLabel("Project manager")
+      .selectOption({ label: "Avery Owner" });
+    await owner.getByRole("button", { name: "Create project" }).click();
+    await expect(
+      owner.getByRole("link", { name: /Customer portal/ }).first(),
+    ).toBeVisible();
+    const ownProjects = await projects(ownerContext);
+    expect(ownProjects).toHaveLength(1);
+    expect(ownProjects[0].key).toBe("WEB");
+    await owner.getByRole("link", { name: "Members" }).click();
+    await owner.getByRole("button", { name: "Invite member" }).click();
+    await owner
+      .getByRole("dialog")
+      .getByLabel("Email address")
+      .fill("teammate@northstar.demo");
+    await owner.getByRole("button", { name: "Create invitation" }).click();
+    const url = await owner
+      .getByLabel("Invitation link", { exact: true })
+      .inputValue();
+    await teammate.goto(url);
+    await teammate.getByLabel("Your name").fill("Casey Member");
+    await teammate.getByLabel("Password", { exact: true }).fill(password);
+    await teammate.getByRole("button", { name: "Create account" }).click();
+    await teammate.getByLabel("Email address").fill("teammate@northstar.demo");
+    await teammate.getByLabel("Password", { exact: true }).fill(password);
+    await teammate
+      .getByRole("button", { name: "Sign in", exact: true })
+      .click();
+    await expect(
+      teammate.getByRole("heading", { name: "A clear view of what’s next." }),
+    ).toBeVisible();
+    expect((await session(teammateContext)).workspace.id).toBe(
+      (await session(ownerContext)).workspace.id,
+    );
+    expect(await projects(teammateContext)).toEqual([]);
+  } finally {
+    await ownerContext.close();
+    await teammateContext.close();
+  }
+});

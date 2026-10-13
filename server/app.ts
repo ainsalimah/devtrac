@@ -22,6 +22,7 @@ import {
 } from "./policy";
 import {
   acceptSchema,
+  registerSchema,
   email,
   loginSchema,
   projectSchema,
@@ -37,6 +38,7 @@ import {
 type Tx = Prisma.TransactionClient;
 type AuthRequest = Request & {
   actor: User;
+  companyName: string;
   sessionId: string;
   csrfToken: string;
 };
@@ -73,7 +75,11 @@ async function access(tx: Tx, actor: User, projectId: string, manager = false) {
     where: { id: projectId },
     include: { members: true },
   });
-  must(project, 404, "Project not found.");
+  must(
+    project && project.companyId === actor.companyId,
+    404,
+    "Project not found.",
+  );
   const member = project.members.find((m) => m.userId === actor.id);
   must(actor.isAdmin || member, 404, "Project not found.");
   if (manager)
@@ -145,7 +151,7 @@ async function resolveSession(token?: string) {
   if (!token) return null;
   const session = await db.session.findUnique({
     where: { id: hash(token) },
-    include: { user: true },
+    include: { user: { include: { company: true } } },
   });
   return session && session.expiresAt > new Date() && session.user.active
     ? session
@@ -199,22 +205,17 @@ export function createApplication() {
     legacyHeaders: false,
     message: { error: "Too many attempts. Try again in 15 minutes." },
   });
-  app.post("/api/auth/login", authLimiter, async (req, res) => {
-    const data = loginSchema.parse(req.body);
-    const user = await db.user.findUnique({ where: { email: data.email } });
-    must(
-      user &&
-        user.active &&
-        (await argon2.verify(user.passwordHash, data.password)),
-      401,
-      "Email or password is incorrect.",
-    );
-    if (req.cookies[cookieName])
-      await db.session.deleteMany({
-        where: { id: hash(req.cookies[cookieName]) },
-      });
-    const token = randomToken(),
-      csrfToken = randomToken();
+  async function revokeExistingSession(req: Request) {
+    const token = req.cookies[cookieName];
+    if (!token) return;
+    const sessionId = hash(token);
+    await db.session.deleteMany({ where: { id: sessionId } });
+    for (const socket of io.sockets.sockets.values())
+      if (socket.data.sessionId === sessionId) socket.disconnect(true);
+  }
+  async function signIn(res: Response, user: User, companyName: string) {
+    const token = randomToken();
+    const csrfToken = randomToken();
     await db.session.create({
       data: {
         id: hash(token),
@@ -223,9 +224,56 @@ export function createApplication() {
         expiresAt: new Date(Date.now() + 7 * 86400000),
       },
     });
-    res
-      .cookie(cookieName, token, sessionCookie)
-      .json({ user: publicUser(user), csrfToken });
+    res.cookie(cookieName, token, sessionCookie).json({
+      user: publicUser(user),
+      workspace: { id: user.companyId, name: companyName },
+      csrfToken,
+    });
+  }
+  app.post("/api/auth/login", authLimiter, async (req, res) => {
+    const data = loginSchema.parse(req.body);
+    const user = await db.user.findUnique({
+      where: { email: data.email },
+      include: { company: true },
+    });
+    must(
+      user &&
+        user.active &&
+        (await argon2.verify(user.passwordHash, data.password)),
+      401,
+      "Email or password is incorrect.",
+    );
+    await revokeExistingSession(req);
+    await signIn(res, user, user.company.name);
+  });
+  app.post("/api/auth/register", authLimiter, async (req, res) => {
+    const data = registerSchema.parse(req.body);
+    const passwordHash = await argon2.hash(data.password, {
+      type: argon2.argon2id,
+    });
+    const { company, user } = await transaction(async (tx) => {
+      must(
+        !(await tx.user.findUnique({ where: { email: data.email } })),
+        409,
+        "An account already exists for this email.",
+      );
+      const company = await tx.company.create({
+        data: { name: data.companyName },
+      });
+      const user = await tx.user.create({
+        data: {
+          companyId: company.id,
+          name: data.name,
+          email: data.email,
+          passwordHash,
+          isAdmin: true,
+        },
+      });
+      return { company, user };
+    });
+    await revokeExistingSession(req);
+    res.status(201);
+    await signIn(res, user, company.name);
   });
   app.post("/api/auth/accept", authLimiter, async (req, res) => {
     const data = acceptSchema.parse(req.body);
@@ -250,7 +298,12 @@ export function createApplication() {
         "An account already exists for this email.",
       );
       await tx.user.create({
-        data: { name: data.name, email: invitation.email, passwordHash },
+        data: {
+          companyId: invitation.companyId,
+          name: data.name,
+          email: invitation.email,
+          passwordHash,
+        },
       });
       await tx.invitation.update({
         where: { id: invitation.id },
@@ -264,6 +317,7 @@ export function createApplication() {
     must(s, 401, "Please sign in to continue.");
     const r = req as AuthRequest;
     r.actor = s.user;
+    r.companyName = s.user.company.name;
     r.sessionId = s.id;
     r.csrfToken = s.csrfToken;
     if (mutationMethods.has(req.method)) {
@@ -296,7 +350,11 @@ export function createApplication() {
       }
   };
   route("get", "/api/auth/me", async (req, res) =>
-    res.json({ user: publicUser(req.actor), csrfToken: req.csrfToken }),
+    res.json({
+      user: publicUser(req.actor),
+      workspace: { id: req.actor.companyId, name: req.companyName },
+      csrfToken: req.csrfToken,
+    }),
   );
   route("post", "/api/auth/logout", async (req, res) => {
     await db.session.delete({ where: { id: req.sessionId } });
@@ -305,7 +363,10 @@ export function createApplication() {
     res.clearCookie(cookieName, { path: "/" }).json({ ok: true });
   });
   route("get", "/api/users", async (req, res) => {
-    const where = req.actor.isAdmin ? {} : { active: true };
+    const where = {
+      companyId: req.actor.companyId,
+      ...(req.actor.isAdmin ? {} : { active: true }),
+    };
     res.json(
       await db.user.findMany({
         where,
@@ -323,6 +384,13 @@ export function createApplication() {
     const id = String(req.params.id);
     must(id !== req.actor.id, 400, "You cannot deactivate your own account.");
     await transaction(async (tx) => {
+      must(
+        await tx.user.findFirst({
+          where: { id, companyId: req.actor.companyId },
+        }),
+        404,
+        "Account not found.",
+      );
       if (!active) {
         must(
           !(await tx.task.count({
@@ -354,13 +422,14 @@ export function createApplication() {
       await tx.user.update({ where: { id }, data: { active } });
     });
     evict(id);
-    io.emit("access:changed", {});
+    io.to(`company:${req.actor.companyId}`).emit("access:changed", {});
     res.json({ ok: true });
   });
   route("get", "/api/invitations", async (req, res) => {
     must(req.actor.isAdmin, 403, "Admin access is required.");
     res.json(
       await db.invitation.findMany({
+        where: { companyId: req.actor.companyId },
         select: {
           id: true,
           email: true,
@@ -384,11 +453,17 @@ export function createApplication() {
         "An account already exists for this email.",
       );
       await tx.invitation.updateMany({
-        where: { email: data.email, usedAt: null, revokedAt: null },
+        where: {
+          companyId: req.actor.companyId,
+          email: data.email,
+          usedAt: null,
+          revokedAt: null,
+        },
         data: { revokedAt: new Date() },
       });
       return tx.invitation.create({
         data: {
+          companyId: req.actor.companyId,
           email: data.email,
           tokenHash: hash(token),
           expiresAt: new Date(Date.now() + 48 * 3600000),
@@ -402,18 +477,22 @@ export function createApplication() {
   });
   route("delete", "/api/invitations/:id", async (req, res) => {
     must(req.actor.isAdmin, 403, "Admin access is required.");
-    await db.invitation.update({
-      where: { id: String(req.params.id) },
+    const updated = await db.invitation.updateMany({
+      where: { id: String(req.params.id), companyId: req.actor.companyId },
       data: { revokedAt: new Date() },
     });
+    must(updated.count === 1, 404, "Invitation not found.");
     res.json({ ok: true });
   });
   route("get", "/api/projects", async (req, res) =>
     res.json(
       await db.project.findMany({
-        where: req.actor.isAdmin
-          ? {}
-          : { members: { some: { userId: req.actor.id } } },
+        where: {
+          companyId: req.actor.companyId,
+          ...(req.actor.isAdmin
+            ? {}
+            : { members: { some: { userId: req.actor.id } } }),
+        },
         include: projectInclude,
         orderBy: { createdAt: "asc" },
       }),
@@ -424,20 +503,27 @@ export function createApplication() {
     const { managerId, ...data } = projectSchema.parse(req.body);
     const p = await transaction(async (tx) => {
       must(
-        await tx.user.findFirst({ where: { id: managerId, active: true } }),
+        await tx.user.findFirst({
+          where: {
+            id: managerId,
+            companyId: req.actor.companyId,
+            active: true,
+          },
+        }),
         400,
         "Select an active project manager.",
       );
       const p = await tx.project.create({
         data: {
           ...data,
+          companyId: req.actor.companyId,
           members: { create: { userId: managerId, isManager: true } },
         },
       });
       await activity(tx, req.actor.id, p.id, "created the project");
       return p;
     });
-    io.emit("access:changed", {});
+    io.to(`company:${req.actor.companyId}`).emit("access:changed", {});
     res.status(201).json(p);
   });
   route("patch", "/api/projects/:id", async (req, res) => {
@@ -475,7 +561,13 @@ export function createApplication() {
     await transaction(async (tx) => {
       const p = await access(tx, req.actor, id, true);
       must(
-        await tx.user.findFirst({ where: { id: data.userId, active: true } }),
+        await tx.user.findFirst({
+          where: {
+            id: data.userId,
+            companyId: req.actor.companyId,
+            active: true,
+          },
+        }),
         400,
         "Select an active account.",
       );
@@ -537,9 +629,12 @@ export function createApplication() {
       await db.task.findMany({
         where: {
           ...(projectId ? { projectId } : {}),
-          ...(req.actor.isAdmin
-            ? {}
-            : { project: { members: { some: { userId: req.actor.id } } } }),
+          project: {
+            companyId: req.actor.companyId,
+            ...(req.actor.isAdmin
+              ? {}
+              : { members: { some: { userId: req.actor.id } } }),
+          },
         },
         include: taskInclude,
         orderBy: [{ position: "asc" }, { createdAt: "asc" }],
@@ -838,9 +933,14 @@ export function createApplication() {
   route("get", "/api/activities", async (req, res) =>
     res.json(
       await db.activity.findMany({
-        where: req.actor.isAdmin
-          ? {}
-          : { project: { members: { some: { userId: req.actor.id } } } },
+        where: {
+          project: {
+            companyId: req.actor.companyId,
+            ...(req.actor.isAdmin
+              ? {}
+              : { members: { some: { userId: req.actor.id } } }),
+          },
+        },
         include: {
           user: { select: personSelect },
           project: { select: { name: true, key: true } },
@@ -866,6 +966,7 @@ export function createApplication() {
         "Invalid session.",
       );
       socket.data.userId = session.userId;
+      socket.data.companyId = session.user.companyId;
       socket.data.sessionId = session.id;
       next();
     } catch {
@@ -874,6 +975,7 @@ export function createApplication() {
   });
   io.on("connection", (socket) => {
     socket.join(`user:${socket.data.userId}`);
+    socket.join(`company:${socket.data.companyId}`);
     socket.on(
       "project:join",
       async (projectId: unknown, callback?: (data: unknown) => void) => {

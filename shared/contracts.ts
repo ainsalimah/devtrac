@@ -23,6 +23,14 @@ export const acceptSchema = z
     password,
   })
   .strict();
+export const registerSchema = z
+  .object({
+    companyName: z.string().trim().min(2).max(100),
+    name: z.string().trim().min(2).max(80),
+    email,
+    password,
+  })
+  .strict();
 export const projectSchema = z
   .object({
     name: z.string().trim().min(2).max(100),

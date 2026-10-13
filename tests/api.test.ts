@@ -110,6 +110,7 @@ beforeAll(async () => {
     "Session",
     "Invitation",
     "User",
+    "Company",
   ])
     await db.$executeRawUnsafe(`DELETE FROM "${table}"`);
   app = (await import("../server/app")).createApplication();
@@ -117,6 +118,9 @@ beforeAll(async () => {
     app.http.listen(0, "127.0.0.1", resolve),
   );
   base = `http://127.0.0.1:${(app.http.address() as { port: number }).port}`;
+  const company = await db.company.create({
+    data: { name: "Integration company" },
+  });
   const passwordHash = await argon2.hash(testPassword);
   const people: Actor[] = [];
   for (const name of [
@@ -128,6 +132,7 @@ beforeAll(async () => {
   ]) {
     const user = await db.user.create({
       data: {
+        companyId: company.id,
         name,
         email: `${name}@test.dev`,
         passwordHash,
@@ -182,6 +187,136 @@ afterAll(async () => {
   if (db) await db.$disconnect();
 });
 describe("PostgreSQL API and collaboration", () => {
+  it("registers a new company and isolates its admin, projects, invitations, tasks and sockets", async () => {
+    const registration = await request(app.app)
+      .post("/api/auth/register")
+      .set("X-DevTrack-Request", "1")
+      .set("Origin", "http://127.0.0.1:5173")
+      .send({
+        companyName: "Second Studio",
+        name: "Company owner",
+        email: "owner@second.test",
+        password: testPassword,
+      });
+    expect(registration.status).toBe(201);
+    expect(registration.body.workspace.name).toBe("Second Studio");
+    const owner: Actor = {
+      user: await db.user.findUniqueOrThrow({
+        where: { email: "owner@second.test" },
+      }),
+      cookie: registration.headers["set-cookie"][0].split(";")[0],
+      csrf: registration.body.csrfToken,
+    };
+    expect(owner.user.isAdmin).toBe(true);
+    expect((await api(owner, "get", "/auth/me")).body.workspace.id).toBe(
+      owner.user.companyId,
+    );
+    expect(
+      (await api(owner, "get", "/users")).body.map((u: User) => u.id),
+    ).toEqual([owner.user.id]);
+    for (const path of ["/projects", "/tasks", "/activities", "/invitations"])
+      expect((await api(owner, "get", path)).body).toEqual([]);
+    expect((await api(owner, "get", `/tasks/${taskId}`)).status).toBe(404);
+    expect(
+      (await api(owner, "get", `/tasks?projectId=${projectId}`)).status,
+    ).toBe(404);
+    expect(
+      (
+        await api(owner, "patch", `/users/${developer.user.id}`, {
+          active: false,
+        })
+      ).status,
+    ).toBe(404);
+    expect(
+      (
+        await api(owner, "post", "/projects", {
+          name: "Foreign manager",
+          key: "FRGN",
+          managerId: manager.user.id,
+        })
+      ).status,
+    ).toBe(400);
+    const original = await db.project.findUniqueOrThrow({
+      where: { id: projectId },
+    });
+    const created = await api(owner, "post", "/projects", {
+      name: "Own project",
+      key: original.key,
+      managerId: owner.user.id,
+    });
+    expect(created.status).toBe(201);
+    expect(created.body.companyId).toBe(owner.user.companyId);
+    expect(
+      (await api(admin, "get", `/tasks?projectId=${created.body.id}`)).status,
+    ).toBe(404);
+    expect(
+      (
+        await api(owner, "post", `/projects/${created.body.id}/members`, {
+          userId: reviewer.user.id,
+        })
+      ).status,
+    ).toBe(400);
+    const outside = await socket(owner);
+    expect(await join(outside, projectId)).toEqual({ ok: false });
+    outside.disconnect();
+    const otherInvite = await api(admin, "post", "/invitations", {
+      email: "invited@first.test",
+    });
+    expect(
+      (await api(owner, "delete", `/invitations/${otherInvite.body.id}`))
+        .status,
+    ).toBe(404);
+    const ownInvite = await api(owner, "post", "/invitations", {
+      email: "invited@second.test",
+    });
+    expect(ownInvite.status).toBe(201);
+    const accepted = await request(app.app)
+      .post("/api/auth/accept")
+      .set("X-DevTrack-Request", "1")
+      .send({
+        token: new URL(ownInvite.body.url).hash.slice(1),
+        name: "Second teammate",
+        password: testPassword,
+      });
+    expect(accepted.status).toBe(201);
+    expect(
+      (
+        await db.user.findUniqueOrThrow({
+          where: { email: "invited@second.test" },
+        })
+      ).companyId,
+    ).toBe(owner.user.companyId);
+    const duplicate = await request(app.app)
+      .post("/api/auth/register")
+      .set("X-DevTrack-Request", "1")
+      .send({
+        companyName: "Duplicate company",
+        name: "Company owner",
+        email: "owner@second.test",
+        password: testPassword,
+      });
+    expect(duplicate.status).toBe(409);
+    expect(
+      await db.company.count({ where: { name: "Duplicate company" } }),
+    ).toBe(0);
+    const liveSocket = await socket(owner);
+    const disconnected = new Promise<void>((resolve) =>
+      liveSocket.once("disconnect", () => resolve()),
+    );
+    const switched = await request(app.app)
+      .post("/api/auth/register")
+      .set("X-DevTrack-Request", "1")
+      .set("Cookie", owner.cookie)
+      .send({
+        companyName: "Third Studio",
+        name: "Another owner",
+        email: "owner@third.test",
+        password: testPassword,
+      });
+    expect(switched.status).toBe(201);
+    await disconnected;
+    expect((await api(owner, "get", "/auth/me")).status).toBe(401);
+  });
   it("revokes a logged-out session and denies expired sessions", async () => {
     const token = randomBytes(32).toString("hex"),
       csrf = randomBytes(32).toString("hex");
@@ -213,6 +348,7 @@ describe("PostgreSQL API and collaboration", () => {
   it("deactivates an unassigned account and invalidates its session", async () => {
     const user = await db.user.create({
       data: {
+        companyId: admin.user.companyId,
         name: "Temporary teammate",
         email: "temporary@test.dev",
         passwordHash: reviewer.user.passwordHash,
@@ -477,6 +613,7 @@ describe("PostgreSQL API and collaboration", () => {
       const value = randomBytes(32).toString("hex");
       await db.invitation.create({
         data: {
+          companyId: admin.user.companyId,
           email: `${variant}@test.dev`,
           tokenHash: sha(value),
           expiresAt: new Date(

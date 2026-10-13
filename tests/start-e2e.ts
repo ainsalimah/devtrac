@@ -25,6 +25,7 @@ for (const table of [
   "Session",
   "Invitation",
   "User",
+  "Company",
 ])
   await db.$executeRawUnsafe(`DELETE FROM "${table}"`);
 execFileSync(process.execPath, ["--import", "tsx", "prisma/seed.ts"], {

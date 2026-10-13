@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   NavLink,
+  Link,
   Route,
   Routes,
   Navigate,
@@ -33,6 +34,7 @@ function SignIn({ onSuccess }: { onSuccess: (auth: Auth) => void }) {
   const location = useLocation(),
     navigate = useNavigate();
   const accept = location.pathname === "/accept-invitation";
+  const register = location.pathname === "/register";
   const [token] = useState(() => location.hash.slice(1));
   const [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
@@ -54,6 +56,18 @@ function SignIn({ onSuccess }: { onSuccess: (auth: Auth) => void }) {
         });
         setAccepted(true);
         navigate("/login", { replace: true });
+      } else if (register) {
+        onSuccess(
+          await api<Auth>("/auth/register", {
+            method: "POST",
+            body: {
+              companyName: data.get("companyName"),
+              name: data.get("name"),
+              email: data.get("email"),
+              password: data.get("password"),
+            },
+          }),
+        );
       } else
         onSuccess(
           await api<Auth>("/auth/login", {
@@ -113,11 +127,19 @@ function SignIn({ onSuccess }: { onSuccess: (auth: Auth) => void }) {
       <section className="login-form">
         <div className="login-form-inner">
           <span className="eyebrow">YOUR TEAM'S WORKSPACE</span>
-          <h2>{accept ? "Join your team" : "Welcome back"}</h2>
+          <h2>
+            {accept
+              ? "Join your team"
+              : register
+                ? "Create your workspace"
+                : "Welcome back"}
+          </h2>
           <p className="muted">
             {accept
               ? "Create your account to start collaborating."
-              : "Sign in to pick up where you left off."}
+              : register
+                ? "Set up a company space for your team. You’ll be its admin."
+                : "Sign in to pick up where you left off."}
           </p>
           {accepted && (
             <div className="success-box">
@@ -125,7 +147,20 @@ function SignIn({ onSuccess }: { onSuccess: (auth: Auth) => void }) {
             </div>
           )}
           <form onSubmit={submit}>
-            {accept ? (
+            {register && (
+              <label>
+                Company name
+                <input
+                  name="companyName"
+                  autoComplete="organization"
+                  required
+                  minLength={2}
+                  maxLength={100}
+                  placeholder="Acme Studio"
+                />
+              </label>
+            )}
+            {(accept || register) && (
               <label>
                 Your name
                 <input
@@ -136,7 +171,8 @@ function SignIn({ onSuccess }: { onSuccess: (auth: Auth) => void }) {
                   maxLength={80}
                 />
               </label>
-            ) : (
+            )}
+            {!accept && (
               <label>
                 Email address
                 <input
@@ -153,25 +189,43 @@ function SignIn({ onSuccess }: { onSuccess: (auth: Auth) => void }) {
               <input
                 name="password"
                 type="password"
-                autoComplete={accept ? "new-password" : "current-password"}
+                autoComplete={
+                  accept || register ? "new-password" : "current-password"
+                }
                 required
-                minLength={accept ? 12 : 1}
+                minLength={accept || register ? 12 : 1}
                 maxLength={128}
               />
             </label>
-            {accept && (
+            {(accept || register) && (
               <small className="muted">Use at least 12 characters.</small>
             )}
             <ErrorBox error={error} />
             <Button disabled={busy} className="full-width">
-              {busy ? "Please wait…" : accept ? "Create account" : "Sign in"}
+              {busy
+                ? "Please wait…"
+                : accept
+                  ? "Create account"
+                  : register
+                    ? "Create workspace"
+                    : "Sign in"}
               <ArrowRight size={16} />
             </Button>
           </form>
           <p className="login-note">
-            {accept
-              ? "Invitation links can only be used once."
-              : "Need an account? Ask your workspace admin for an invitation."}
+            {accept ? (
+              "Invitation links can only be used once."
+            ) : register ? (
+              <>
+                <Link to="/login">Already have an account? Sign in.</Link> Team
+                members join through an invitation.
+              </>
+            ) : (
+              <>
+                <Link to="/register">New company? Create a workspace.</Link>{" "}
+                Team members need an invitation from their admin.
+              </>
+            )}
           </p>
         </div>
       </section>
@@ -310,9 +364,11 @@ export default function App() {
             </button>
           </div>
           <div className="workspace-picker">
-            <span className="workspace-icon">S</span>
+            <span className="workspace-icon">
+              {auth.workspace.name.slice(0, 1).toUpperCase()}
+            </span>
             <div>
-              <strong>Studio workspace</strong>
+              <strong>{auth.workspace.name}</strong>
               <small>Software team</small>
             </div>
             <ChevronDown size={14} />
@@ -369,7 +425,7 @@ export default function App() {
         <div className="main-shell" id="workspace-content" tabIndex={-1}>
           <header className="topbar">
             <span>
-              Studio workspace <span className="crumb-separator">/</span>{" "}
+              {auth.workspace.name} <span className="crumb-separator">/</span>{" "}
               <strong>Team projects</strong>
             </span>
             <span className="topbar-right">

@@ -5,6 +5,14 @@ const db = new PrismaClient();
 export async function seed() {
   const password = process.env.DEMO_PASSWORD;
   if (!password) throw new Error("Set DEMO_PASSWORD before seeding.");
+  const company = await db.company.upsert({
+    where: { id: "00000000-0000-4000-8000-000000000001" },
+    update: {},
+    create: {
+      id: "00000000-0000-4000-8000-000000000001",
+      name: "Studio workspace",
+    },
+  });
   const passwordHash = await argon2.hash(password, { type: argon2.argon2id });
   const definitions = [
     ["admin", "Morgan Lee", true],
@@ -19,13 +27,25 @@ export async function seed() {
       await db.user.upsert({
         where: { email: `${key}@devtrack.demo` },
         update: {},
-        create: { email: `${key}@devtrack.demo`, name, isAdmin, passwordHash },
+        create: {
+          companyId: company.id,
+          email: `${key}@devtrack.demo`,
+          name,
+          isAdmin,
+          passwordHash,
+        },
       }),
     );
   const [admin, manager, developer, reviewer, outsider] = users;
-  if (await db.project.findUnique({ where: { key: "WEB" } })) return;
+  if (
+    await db.project.findUnique({
+      where: { companyId_key: { companyId: company.id, key: "WEB" } },
+    })
+  )
+    return;
   const p = await db.project.create({
     data: {
+      companyId: company.id,
       key: "WEB",
       name: "Website redesign",
       description:
@@ -41,6 +61,7 @@ export async function seed() {
   });
   await db.project.create({
     data: {
+      companyId: company.id,
       key: "OPS",
       name: "Internal operations",
       description: "A private workspace for internal tools and operations.",

@@ -241,11 +241,15 @@ a:focus-visible {
 }
 .workspace-picker > div {
   flex: 1;
+  min-width: 0;
 }
 .workspace-picker strong {
   font-size: 11px;
   font-weight: 600;
   display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .workspace-picker small {
   color: var(--muted);
@@ -413,6 +417,12 @@ a:focus-visible {
   font-weight: 500;
   color: #5b5d6a;
 }
+.topbar > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .crumb-separator {
   margin: 0 13px;
   color: #c4c5ce;
@@ -421,6 +431,7 @@ a:focus-visible {
   display: flex;
   gap: 15px;
   align-items: center;
+  flex-shrink: 0;
 }
 .subtle-pill {
   display: inline-flex;
@@ -1690,6 +1701,12 @@ td strong {
   line-height: 1.8;
   color: #a3a4b0;
   margin-top: 24px;
+}
+.login-note a {
+  color: var(--indigo);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 .mobile-menu,
 .mobile-close {

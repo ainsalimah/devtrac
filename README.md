@@ -38,6 +38,8 @@ Default local password for every demo account: **`LocalDemo!2026`**. This is int
 
 Use separate browser profiles/incognito windows to try simultaneous accounts.
 
+To try a new company, open **http://127.0.0.1:5173/register** or choose **New company? Create a workspace** on the sign-in page. Enter the company name, owner name, email, and a password of at least 12 characters. The owner is signed in as that company's admin and starts with an empty workspace. They can create a project, then invite teammates from Members. Each account belongs to one company; existing email addresses cannot register another company. Company registration is for this local demo and does not verify email ownership.
+
 ## Product behavior
 
 - **Overview:** accessible project summaries, task counts, personal focus, and recent team activity.
@@ -47,6 +49,7 @@ Use separate browser profiles/incognito windows to try simultaneous accounts.
 - **Task detail:** description, checklist, comments, submissions, review decisions, and activity history.
 - **Members:** active company directory; admins invite/deactivate accounts and revoke pending invitations.
 - **Invitations:** single-use links, valid for 48 hours. Creating a replacement revokes older unused invitations for that email. The secret link is shown only on creation. Delivery is manual; no email is sent.
+- **Companies:** an owner can create a new workspace. Users, projects, tasks, invitations, and activity are scoped to their company; project keys may be reused by different companies.
 
 ### Review workflow
 
@@ -68,6 +71,9 @@ React UI ── REST /api ── Express policies + Zod ── Prisma ── Pos
 
 ```mermaid
 erDiagram
+  Company ||--o{ User : owns
+  Company ||--o{ Project : owns
+  Company ||--o{ Invitation : issues
   User ||--o{ Session : authenticates
   User ||--o{ ProjectMember : joins
   Project ||--o{ ProjectMember : contains
@@ -85,9 +91,9 @@ erDiagram
   User ||--o{ Activity : performs
 ```
 
-An Invitation stores a hashed one-time token and email; acceptance creates the User. Sessions use hashed random identifiers, a PostgreSQL store, a seven-day absolute expiry, and a per-session CSRF token. Passwords use Argon2id. Auth cookies are HttpOnly and SameSite=Lax; enable `COOKIE_SECURE=true` behind HTTPS.
+The migration assigns existing demo data to Studio workspace. A new registration creates a Company and its admin User in one transaction. An Invitation belongs to a company and stores a hashed one-time token and email; acceptance creates a User in that company. Sessions use hashed random identifiers, a PostgreSQL store, a seven-day absolute expiry, and a per-session CSRF token. Passwords use Argon2id. Auth cookies are HttpOnly and SameSite=Lax; enable `COOKIE_SECURE=true` behind HTTPS.
 
-Access is enforced on every API resource and socket subscription. Mutations require JSON, the `X-DevTrack-Request` header, and (when authenticated) `X-CSRF-Token`; browser origins are checked. Login/acceptance are rate limited. Input strings have bounds; comments are rendered as text. Submitted links are never fetched by the backend.
+Access is enforced on every API resource and socket subscription, including company scope for admins. Mutations require JSON, the `X-DevTrack-Request` header, and (when authenticated) `X-CSRF-Token`; browser origins are checked. Login, registration, and invitation acceptance are rate limited. Input strings have bounds; comments are rendered as text. Submitted links are never fetched by the backend.
 
 Task mutations use serializable transactions and optimistic version checks. A stale edit returns HTTP 409; concurrent changes are never silently overwritten. Status changes and their activity events commit together. Database constraints also prohibit self-review and non-positive versions.
 
@@ -103,7 +109,7 @@ Socket events carry invalidation signals, not authoritative data. Clients fetch 
 
 ### API surface
 
-- Auth: `POST /api/auth/login`, `POST /api/auth/accept`, `GET /api/auth/me`, `POST /api/auth/logout`.
+- Auth: `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/accept`, `GET /api/auth/me`, `POST /api/auth/logout`.
 - Users/invitations: `GET/PATCH /api/users`, `GET/POST/DELETE /api/invitations` (mutations use resource IDs where applicable).
 - Projects: `GET/POST /api/projects`, `PATCH /api/projects/:id`, `POST /api/projects/:id/members`, `DELETE /api/projects/:id/members/:userId`.
 - Tasks: `GET /api/tasks`, `GET /api/tasks/:id`, `POST /api/projects/:id/tasks`.
@@ -124,7 +130,7 @@ npm audit
 
 **Tests clear only `TEST_DATABASE_URL`, whose database name must end with `_test`.** Never point it to a database containing valuable data. API tests and browser tests use the same disposable database; run them sequentially. E2E starts its own server on port 4201, seeds fictional data, and tests the built frontend. It does not change the normal demo database. The local dev server can remain open.
 
-The suites cover review/revision/reopen, stale writes, CSRF/origin protection, invitation lifecycle, permissions, archive rules, membership/socket eviction, multi-browser updates, reconnect, failed drag rollback, keyboard interaction, mobile layout, and automated accessibility checks. Browser screenshots are saved in `docs/screenshots`; traces/videos and the HTML report are in ignored test output directories.
+The suites cover company registration and isolation, review/revision/reopen, stale writes, CSRF/origin protection, invitation lifecycle, permissions, archive rules, membership/socket eviction, multi-browser updates, reconnect, failed drag rollback, keyboard interaction, mobile layout, and automated accessibility checks. Browser screenshots are saved in `docs/screenshots`; traces/videos and the HTML report are in ignored test output directories.
 
 The dependency lock is included in the deliverable. `.npmrc` avoids a peer-resolver crash in the host's npm 10 when resolving Vitest's optional peer packages. The actual installed direct dependency tree is checked with `npm ls --depth=0`. Narrow overrides update Prisma's configuration-only merge/effect dependencies and esbuild to patched releases; migration, generation, test, and build checks verify compatibility.
 
@@ -147,7 +153,8 @@ Express serves both the built frontend and API on **http://127.0.0.1:4100**. Set
 4. Submit a second revision and approve it. Open Submissions to show both revisions and decisions.
 5. As manager, reopen it with a reason. Explain that completion still requires another independent review.
 6. As outsider, try the Website redesign URL: the server denies access.
+7. Register a second company in a private window, create its own `WEB` project, and confirm its admin cannot see the demo company's users or tasks.
 
 Inspiration: [Anuj's Trello clone](https://github.com/Anuj-er/trello-clone), [Knowankit's Trello clone](https://github.com/knowankit/trello-clone), and [Planka](https://github.com/plankanban/planka). These informed the product study; this implementation does not copy their application source.
 
-V1 deliberately excludes multiple companies, billing, automated email/password recovery, file uploads, GitHub integration, AI, and standalone chat. It targets a small local portfolio team; there is no offline write queue, horizontal socket scaling, or production monitoring service.
+This local version supports multiple isolated companies but only one company per account. It deliberately excludes billing, email verification/delivery, automated password recovery, file uploads, GitHub integration, AI, and standalone chat. It has no offline write queue, horizontal socket scaling, or production monitoring service.
