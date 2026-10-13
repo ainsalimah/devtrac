@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.env
+.env.test
+.db-init-password
+.local-db/
+test-results/
+playwright-report/
+*.log

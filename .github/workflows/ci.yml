@@ -1,0 +1,43 @@
+name: Verify DevTrack
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: devtrack
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_DB: devtrack_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U devtrack -d devtrack_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://devtrack:ci-only-password@127.0.0.1:5432/devtrack_test
+      TEST_DATABASE_URL: postgresql://devtrack:ci-only-password@127.0.0.1:5432/devtrack_test
+      DEMO_PASSWORD: LocalDemo!2026
+      COOKIE_SECURE: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run db:generate
+      - run: npm run test
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+      - run: npm audit --audit-level=high
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-report
+          path: playwright-report/
