@@ -363,14 +363,6 @@ export default function App() {
                   {auth.user.isAdmin ? "Workspace admin" : "Team member"}
                 </small>
               </div>
-              <button
-                className="icon-button"
-                onClick={logout}
-                title="Sign out"
-                aria-label="Sign out"
-              >
-                <LogOut size={17} />
-              </button>
             </div>
           </div>
         </aside>
@@ -383,6 +375,10 @@ export default function App() {
             <span className="topbar-right">
               <span className="subtle-pill">Local workspace</span>
               <Avatar name={auth.user.name} small />
+              <button className="signout-button" onClick={logout}>
+                <LogOut size={15} aria-hidden="true" />
+                Sign out
+              </button>
             </span>
           </header>
           {!online && (
