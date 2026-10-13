@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: devtrack
+    runtime: node
+    plan: free
+    buildCommand: npm ci --include=dev && npm run db:generate && npm run build
+    startCommand: npm run db:migrate && npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: 22.16.0
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: DATABASE_URL
+        sync: false

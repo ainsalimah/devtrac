@@ -3,8 +3,9 @@ import { createApplication } from "./app";
 import { db } from "./db";
 const { http, io } = createApplication();
 const port = Number(process.env.PORT || 4100);
-http.listen(port, "127.0.0.1", () =>
-  console.log(`DevTrack server: http://127.0.0.1:${port}`),
+const host = process.env.HOST || "127.0.0.1";
+http.listen(port, host, () =>
+  console.log(`DevTrack server listening on ${host}:${port}`),
 );
 async function shutdown() {
   io.close();

@@ -373,7 +373,7 @@ test("admin invitation creates a real account and cannot be reused", async ({
       .getByRole("dialog")
       .getByLabel("Email address")
       .fill("invited@devtrack.demo");
-    await admin.getByRole("button", { name: "Create invitation" }).click();
+    await admin.getByRole("button", { name: "Send invitation" }).click();
     const link = admin.getByLabel("Invitation link", { exact: true });
     await expect(link).toBeVisible();
     const url = await link.inputValue();
@@ -458,7 +458,7 @@ test("new company owner creates a private workspace and invites a teammate", asy
       .getByRole("dialog")
       .getByLabel("Email address")
       .fill("teammate@northstar.demo");
-    await owner.getByRole("button", { name: "Create invitation" }).click();
+    await owner.getByRole("button", { name: "Send invitation" }).click();
     const url = await owner
       .getByLabel("Invitation link", { exact: true })
       .inputValue();

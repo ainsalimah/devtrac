@@ -5,6 +5,7 @@ import { createHash, randomBytes } from "node:crypto";
 import request from "supertest";
 import argon2 from "argon2";
 import { io as connect, type Socket } from "socket.io-client";
+import { SMTPServer } from "smtp-server";
 import type { PrismaClient, User } from "@prisma/client";
 import type { createApplication } from "../server/app";
 
@@ -20,6 +21,17 @@ let admin: Actor,
   projectCounter = 0;
 const testPassword = "TestOnly!Password2026";
 const sockets: Socket[] = [];
+const smtpKeys = [
+  "SMTP_HOST",
+  "SMTP_PORT",
+  "SMTP_SECURE",
+  "SMTP_FROM",
+  "SMTP_USER",
+  "SMTP_PASSWORD",
+] as const;
+const originalSmtp = Object.fromEntries(
+  smtpKeys.map((key) => [key, process.env[key]]),
+);
 const sha = (s: string) => createHash("sha256").update(s).digest("hex");
 function api(
   actor: Actor,
@@ -85,6 +97,7 @@ async function join(s: Socket, id: string) {
   );
 }
 beforeAll(async () => {
+  for (const key of smtpKeys) delete process.env[key];
   const url = process.env.TEST_DATABASE_URL;
   if (!url || !new URL(url).pathname.endsWith("_test"))
     throw new Error(
@@ -185,6 +198,10 @@ afterAll(async () => {
   for (const s of sockets) s.disconnect();
   if (app) await new Promise<void>((resolve) => app.io.close(() => resolve()));
   if (db) await db.$disconnect();
+  for (const key of smtpKeys) {
+    if (originalSmtp[key] === undefined) delete process.env[key];
+    else process.env[key] = originalSmtp[key];
+  }
 });
 describe("PostgreSQL API and collaboration", () => {
   it("registers a new company and isolates its admin, projects, invitations, tasks and sockets", async () => {
@@ -623,6 +640,101 @@ describe("PostgreSQL API and collaboration", () => {
         },
       });
       expect((await accept(value)).status).toBe(400);
+    }
+  });
+  it("uses Render's public URL for invitation links when APP_ORIGIN is unset", async () => {
+    const origin = process.env.APP_ORIGIN;
+    const renderUrl = process.env.RENDER_EXTERNAL_URL;
+    try {
+      delete process.env.APP_ORIGIN;
+      process.env.RENDER_EXTERNAL_URL = "https://devtrack-example.onrender.com";
+      const response = await request(app.app)
+        .post("/api/invitations")
+        .set("Cookie", admin.cookie)
+        .set("X-CSRF-Token", admin.csrf)
+        .set("X-DevTrack-Request", "1")
+        .set("Origin", "https://devtrack-example.onrender.com")
+        .send({ email: "render-invite@test.dev" });
+      expect(response.status).toBe(201);
+      expect(response.body.url).toMatch(
+        /^https:\/\/devtrack-example\.onrender\.com\/accept-invitation#/,
+      );
+    } finally {
+      if (origin === undefined) delete process.env.APP_ORIGIN;
+      else process.env.APP_ORIGIN = origin;
+      if (renderUrl === undefined) delete process.env.RENDER_EXTERNAL_URL;
+      else process.env.RENDER_EXTERNAL_URL = renderUrl;
+    }
+  });
+  it("emails an invitation through SMTP and preserves older links if delivery fails", async () => {
+    const keys = [
+      "SMTP_HOST",
+      "SMTP_PORT",
+      "SMTP_SECURE",
+      "SMTP_FROM",
+      "SMTP_USER",
+      "SMTP_PASSWORD",
+    ] as const;
+    const previous = Object.fromEntries(
+      keys.map((key) => [key, process.env[key]]),
+    );
+    const messages: string[] = [];
+    const server = new SMTPServer({
+      authOptional: true,
+      disabledCommands: ["AUTH", "STARTTLS"],
+      onData(stream, _session, callback) {
+        const chunks: Buffer[] = [];
+        stream.on("data", (chunk: Buffer) => chunks.push(chunk));
+        stream.on("end", () => {
+          messages.push(Buffer.concat(chunks).toString("utf8"));
+          callback();
+        });
+      },
+    });
+    try {
+      await new Promise<void>((resolve) =>
+        server.listen(0, "127.0.0.1", resolve),
+      );
+      const address = server.server.address();
+      if (!address || typeof address === "string")
+        throw new Error("SMTP listener missing");
+      Object.assign(process.env, {
+        SMTP_HOST: "127.0.0.1",
+        SMTP_PORT: String(address.port),
+        SMTP_SECURE: "false",
+        SMTP_FROM: "invites@devtrack.test",
+      });
+      delete process.env.SMTP_USER;
+      delete process.env.SMTP_PASSWORD;
+      const recipient = "smtp-member@test.dev";
+      const sent = await api(admin, "post", "/invitations", {
+        email: recipient,
+      });
+      expect(sent.status).toBe(201);
+      expect(sent.body).toMatchObject({ delivery: "sent" });
+      expect(sent.body.url).toBeUndefined();
+      expect(messages).toHaveLength(1);
+      expect(messages[0]).toContain(recipient);
+      expect(messages[0]).toContain("accept-invitation#");
+      await new Promise<void>((resolve) => server.close(resolve));
+      const failed = await api(admin, "post", "/invitations", {
+        email: recipient,
+      });
+      expect(failed.status).toBe(502);
+      const invitations = await db.invitation.findMany({
+        where: { companyId: admin.user.companyId, email: recipient },
+        orderBy: { createdAt: "asc" },
+      });
+      expect(invitations).toHaveLength(2);
+      expect(invitations[0].revokedAt).toBeNull();
+      expect(invitations[1].revokedAt).not.toBeNull();
+    } finally {
+      if (server.server.listening)
+        await new Promise<void>((resolve) => server.close(resolve));
+      for (const key of keys) {
+        if (previous[key] === undefined) delete process.env[key];
+        else process.env[key] = previous[key];
+      }
     }
   });
   it("keeps archived projects read-only", async () => {

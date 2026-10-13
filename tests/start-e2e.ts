@@ -1,5 +1,14 @@
 import "dotenv/config";
 import { execFileSync } from "node:child_process";
+for (const key of [
+  "SMTP_HOST",
+  "SMTP_PORT",
+  "SMTP_SECURE",
+  "SMTP_FROM",
+  "SMTP_USER",
+  "SMTP_PASSWORD",
+])
+  delete process.env[key];
 const url = process.env.TEST_DATABASE_URL;
 if (!url || !new URL(url).pathname.endsWith("_test"))
   throw new Error("E2E requires a dedicated *_test database.");

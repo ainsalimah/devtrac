@@ -40,6 +40,23 @@ Use separate browser profiles/incognito windows to try simultaneous accounts.
 
 To try a new company, open **http://127.0.0.1:5173/register** or choose **New company? Create a workspace** on the sign-in page. Enter the company name, owner name, email, and a password of at least 12 characters. The owner is signed in as that company's admin and starts with an empty workspace. They can create a project, then invite teammates from Members. Each account belongs to one company; existing email addresses cannot register another company. Company registration is for this local demo and does not verify email ownership.
 
+### Send invitations by email
+
+Invitation emails are sent automatically when SMTP is configured. Add these values to the ignored `.env` file after the database has been initialized, then restart DevTrack:
+
+```dotenv
+SMTP_HOST="smtp.example.com"
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_FROM="invites@example.com"
+SMTP_USER="your-smtp-username"
+SMTP_PASSWORD="your-smtp-password-or-app-password"
+```
+
+Use the host, port, credentials, and verified sender supplied by your email provider. Port 587 uses STARTTLS; for port 465 set `SMTP_SECURE=true`. Credentials can be omitted for a trusted local SMTP relay. Never commit real credentials. In **Members**, enter the recipient's email and select **Send invitation**. DevTrack reports success when the SMTP server accepts the message; actual inbox delivery still depends on the provider. If delivery fails, the new link is revoked and any earlier pending invitation remains valid. With no SMTP settings, the same form creates a one-time link you can copy manually.
+
+The default `APP_ORIGIN=http://127.0.0.1:5173` makes invitation links usable only on this computer. To invite someone on another device, DevTrack must be reachable at a public HTTPS origin and `APP_ORIGIN` must match it. Publishing is outside this local demo.
+
 ## Product behavior
 
 - **Overview:** accessible project summaries, task counts, personal focus, and recent team activity.
@@ -48,7 +65,7 @@ To try a new company, open **http://127.0.0.1:5173/register** or choose **New co
 - **Board/List:** search by title/key, filter priority and assignee, drag cards, or use the task's keyboard-accessible Move task selector.
 - **Task detail:** description, checklist, comments, submissions, review decisions, and activity history.
 - **Members:** active company directory; admins invite/deactivate accounts and revoke pending invitations.
-- **Invitations:** single-use links, valid for 48 hours. Creating a replacement revokes older unused invitations for that email. The secret link is shown only on creation. Delivery is manual; no email is sent.
+- **Invitations:** single-use links, valid for 48 hours. Configured SMTP sends the link to the invited address; otherwise the secret link is shown only on creation for manual sharing. A successfully sent replacement revokes older unused invitations for that email.
 - **Companies:** an owner can create a new workspace. Users, projects, tasks, invitations, and activity are scoped to their company; project keys may be reused by different companies.
 
 ### Review workflow
@@ -134,7 +151,7 @@ The suites cover company registration and isolation, review/revision/reopen, sta
 
 The dependency lock is included in the deliverable. `.npmrc` avoids a peer-resolver crash in the host's npm 10 when resolving Vitest's optional peer packages. The actual installed direct dependency tree is checked with `npm ls --depth=0`. Narrow overrides update Prisma's configuration-only merge/effect dependencies and esbuild to patched releases; migration, generation, test, and build checks verify compatibility.
 
-A GitHub Actions workflow is included for the same checks with PostgreSQL 18. It has not been run on GitHub; this project has not been published or pushed to a remote repository.
+A GitHub Actions workflow is included for the same checks with PostgreSQL 18. It has not been run on GitHub.
 
 To serve the production build locally, stop the dev server and run:
 
@@ -143,7 +160,18 @@ $env:APP_ORIGIN = 'http://127.0.0.1:4100'
 npm start
 ```
 
-Express serves both the built frontend and API on **http://127.0.0.1:4100**. Set the origin back to 5173 when returning to Vite development. Keep `COOKIE_SECURE=false` for local HTTP. Publishing, a reverse proxy, domain setup, and public demo isolation are outside this local deliverable.
+Express serves both the built frontend and API on **http://127.0.0.1:4100**. Set the origin back to 5173 when returning to Vite development. Keep `COOKIE_SECURE=false` for local HTTP.
+
+### Deploy to Render with Neon
+
+The included `render.yaml` configures one free Render web service. It builds the React frontend and Express backend, applies Prisma migrations at startup, and checks `/api/health`. Use a separate Neon PostgreSQL project for the hosted app. The deployment does **not** run the local demo seed, because its documented password must not be published. After the first deploy, register your company and owner account using the public URL.
+
+1. Push this project to a GitHub repository, leaving `.env`, `.local-db`, and `node_modules` untracked.
+2. Create a Neon PostgreSQL project and copy its pooled connection string. Keep it private.
+3. In Render, create a Blueprint from that GitHub repository. `render.yaml` prompts for `DATABASE_URL`; enter the Neon connection string. Use the free plan shown in the Blueprint.
+4. After Render reports a live deploy, open its `https://…onrender.com` URL, register the first workspace, and verify login, project creation, and refresh persistence.
+
+Render supplies `RENDER_EXTERNAL_URL` automatically for invitation links and origin checks. If you later use a custom domain, set `APP_ORIGIN` to its exact HTTPS origin. `COOKIE_SECURE=true` and `HOST=0.0.0.0` are set by the Blueprint. No SMTP settings are included: manual invitation links work immediately. Render's free web service blocks outbound SMTP ports 25, 465, and 587; configure an email provider on a supported port separately if you enable automatic email delivery. Render's free service can take about a minute to wake after 15 minutes idle.
 
 ## Demo walkthrough
 
@@ -157,4 +185,4 @@ Express serves both the built frontend and API on **http://127.0.0.1:4100**. Set
 
 Inspiration: [Anuj's Trello clone](https://github.com/Anuj-er/trello-clone), [Knowankit's Trello clone](https://github.com/knowankit/trello-clone), and [Planka](https://github.com/plankanban/planka). These informed the product study; this implementation does not copy their application source.
 
-This local version supports multiple isolated companies but only one company per account. It deliberately excludes billing, email verification/delivery, automated password recovery, file uploads, GitHub integration, AI, and standalone chat. It has no offline write queue, horizontal socket scaling, or production monitoring service.
+This local version supports multiple isolated companies but only one company per account. It deliberately excludes billing, email verification, automated password recovery, file uploads, GitHub integration, AI, and standalone chat. It has no offline write queue, horizontal socket scaling, or production monitoring service.

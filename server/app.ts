@@ -14,6 +14,7 @@ import { Server } from "socket.io";
 import { Prisma, type User, type Task } from "@prisma/client";
 import { z, ZodError } from "zod";
 import { db, personSelect, taskInclude, projectInclude } from "./db";
+import { sendInvitationEmail, smtpSettings } from "./mail";
 import {
   AppError,
   requireCondition as must,
@@ -52,10 +53,16 @@ const publicUser = (u: User) => ({
   active: u.active,
 });
 const cookieName = "devtrack_session";
+const appOrigin = () =>
+  process.env.APP_ORIGIN ||
+  process.env.RENDER_EXTERNAL_URL ||
+  "http://127.0.0.1:5173";
 const origins = () =>
   new Set([
-    process.env.APP_ORIGIN || "http://127.0.0.1:5173",
-    `http://127.0.0.1:${process.env.PORT || 4100}`,
+    appOrigin(),
+    ...(process.env.NODE_ENV === "production"
+      ? []
+      : [`http://127.0.0.1:${process.env.PORT || 4100}`]),
   ]);
 const mutationMethods = new Set(["POST", "PATCH", "PUT", "DELETE"]);
 const sessionCookie = {
@@ -445,6 +452,7 @@ export function createApplication() {
   route("post", "/api/invitations", async (req, res) => {
     must(req.actor.isAdmin, 403, "Admin access is required.");
     const data = z.object({ email }).strict().parse(req.body);
+    const smtp = smtpSettings();
     const token = randomToken();
     const invitation = await transaction(async (tx) => {
       must(
@@ -452,15 +460,6 @@ export function createApplication() {
         409,
         "An account already exists for this email.",
       );
-      await tx.invitation.updateMany({
-        where: {
-          companyId: req.actor.companyId,
-          email: data.email,
-          usedAt: null,
-          revokedAt: null,
-        },
-        data: { revokedAt: new Date() },
-      });
       return tx.invitation.create({
         data: {
           companyId: req.actor.companyId,
@@ -470,9 +469,35 @@ export function createApplication() {
         },
       });
     });
+    const url = `${appOrigin()}/accept-invitation#${token}`;
+    if (smtp) {
+      try {
+        await sendInvitationEmail(smtp, data.email, req.companyName, url);
+      } catch {
+        await db.invitation.update({
+          where: { id: invitation.id },
+          data: { revokedAt: new Date() },
+        });
+        throw new AppError(
+          502,
+          "Could not send the invitation email. Check SMTP settings and try again.",
+        );
+      }
+    }
+    await db.invitation.updateMany({
+      where: {
+        companyId: req.actor.companyId,
+        email: data.email,
+        id: { not: invitation.id },
+        usedAt: null,
+        revokedAt: null,
+      },
+      data: { revokedAt: new Date() },
+    });
     res.status(201).json({
       id: invitation.id,
-      url: `${process.env.APP_ORIGIN || "http://127.0.0.1:5173"}/accept-invitation#${token}`,
+      delivery: smtp ? "sent" : "manual",
+      ...(smtp ? {} : { url }),
     });
   });
   route("delete", "/api/invitations/:id", async (req, res) => {

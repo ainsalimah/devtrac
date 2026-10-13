@@ -527,6 +527,7 @@ export function Members() {
     client = useQueryClient();
   const [open, setOpen] = useState(false),
     [url, setUrl] = useState(""),
+    [sentEmail, setSentEmail] = useState(""),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
   const invitations = useQuery({
@@ -538,8 +539,13 @@ export function Members() {
     setError("");
     setBusy(true);
     try {
-      const result = await api<{ url?: string }>(path, { method, body });
+      const result = await api<{ url?: string; delivery?: "sent" | "manual" }>(
+        path,
+        { method, body },
+      );
       if (result.url) setUrl(result.url);
+      if (path === "/invitations" && result.delivery === "sent")
+        setSentEmail((body as { email: string }).email);
       await Promise.all([
         client.invalidateQueries({ queryKey: ["users"] }),
         client.invalidateQueries({ queryKey: ["invitations"] }),
@@ -565,6 +571,7 @@ export function Members() {
             onClick={() => {
               setOpen(true);
               setUrl("");
+              setSentEmail("");
               setError("");
             }}
           >
@@ -689,13 +696,22 @@ export function Members() {
         open={open}
         onOpenChange={setOpen}
         title="Invite a teammate"
-        description="Create a private invitation link and share it with your teammate."
+        description="Invite a teammate to your workspace with a link that expires in 48 hours."
       >
-        {url ? (
+        {sentEmail ? (
           <div className="form-stack">
-            <div className="success-box">
+            <div className="success-box" role="status">
+              Invitation email sent to {sentEmail}. The link expires in 48
+              hours.
+            </div>
+            <Button onClick={() => setOpen(false)}>Done</Button>
+          </div>
+        ) : url ? (
+          <div className="form-stack">
+            <div className="success-box" role="status">
               <Link2 size={17} />
-              Invitation created. This link is shown only once.
+              Email delivery is not configured. Copy and share this one-time
+              link.
             </div>
             <label>
               Invitation link
@@ -718,7 +734,6 @@ export function Members() {
               <Copy size={16} />
               Copy link
             </Button>
-            <p className="muted">No email is sent automatically.</p>
           </div>
         ) : (
           <form
@@ -741,7 +756,7 @@ export function Members() {
             </label>
             <ErrorBox error={error} />
             <Button disabled={busy}>
-              {busy ? "Creating…" : "Create invitation"}
+              {busy ? "Sending…" : "Send invitation"}
             </Button>
           </form>
         )}
