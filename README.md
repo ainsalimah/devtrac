@@ -173,6 +173,18 @@ The included `render.yaml` configures one free Render web service. It builds the
 
 Render supplies `RENDER_EXTERNAL_URL` automatically for invitation links and origin checks. If you later use a custom domain, set `APP_ORIGIN` to its exact HTTPS origin. `COOKIE_SECURE=true` and `HOST=0.0.0.0` are set by the Blueprint. No SMTP settings are included: manual invitation links work immediately. Render's free web service blocks outbound SMTP ports 25, 465, and 587; configure an email provider on a supported port separately if you enable automatic email delivery. Render's free service can take about a minute to wake after 15 minutes idle.
 
+### Deploy to Railway with Neon (no card required on Free)
+
+Railway Free supports this single-service Express + Vite deployment and WebSockets. Its trial credits and monthly free allowance are limited; check usage in the Railway dashboard. A Railway **Limited Trial** can restrict outbound connections to the external Neon database. If the app cannot connect to Neon, check whether your Railway account received Full Trial access before troubleshooting application code.
+
+1. Sign in to Railway with GitHub and choose **New Project → Deploy from GitHub repo → `ainsalimah/devtrac`**. Keep the repo root as the service root. Railway's Railpack reads `.node-version` for Node 22.16.0.
+2. In the service **Variables**, set `DATABASE_URL` to the **pooled** connection string from the Neon `DevTrack` project, `COOKIE_SECURE=true`, and `NODE_ENV=production`. Keep the connection string in Railway; never commit it or paste it in chat. Do not copy the local `.env` wholesale.
+3. In **Settings → Build**, set the build command to `npm run db:generate && npm run build`. In **Settings → Deploy**, set the start command to `npm run db:migrate && npm start` and the healthcheck path to `/api/health`. Railway installs dependencies from `package-lock.json` before the build.
+4. In **Settings → Networking**, select **Generate Domain**. Railway supplies `RAILWAY_PUBLIC_DOMAIN` for invitation links and origin checks. The server listens on Railway's injected `PORT` and `0.0.0.0`. Apply staged changes and redeploy after adding the domain so the server receives it.
+5. Open the generated HTTPS URL. Register your own company and admin account, then create a project. The public deployment never runs the local demo seed. Invite links can be copied from the Members page.
+
+Railway Free/Trial blocks outbound SMTP, so leave SMTP variables unset and share invitation links manually for now. Automatic email delivery there would need an HTTPS email API integration.
+
 ## Demo walkthrough
 
 1. Sign in as manager. Open Website redesign and create a task for Jamie with Sam as reviewer.

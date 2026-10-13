@@ -56,6 +56,8 @@ const cookieName = "devtrack_session";
 const appOrigin = () =>
   process.env.APP_ORIGIN ||
   process.env.RENDER_EXTERNAL_URL ||
+  (process.env.RAILWAY_PUBLIC_DOMAIN &&
+    `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`) ||
   "http://127.0.0.1:5173";
 const origins = () =>
   new Set([

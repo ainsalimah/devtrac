@@ -666,6 +666,34 @@ describe("PostgreSQL API and collaboration", () => {
       else process.env.RENDER_EXTERNAL_URL = renderUrl;
     }
   });
+  it("uses Railway's public domain for invitation links and origin checks", async () => {
+    const origin = process.env.APP_ORIGIN;
+    const renderUrl = process.env.RENDER_EXTERNAL_URL;
+    const railwayDomain = process.env.RAILWAY_PUBLIC_DOMAIN;
+    try {
+      delete process.env.APP_ORIGIN;
+      delete process.env.RENDER_EXTERNAL_URL;
+      process.env.RAILWAY_PUBLIC_DOMAIN = "devtrack-example.up.railway.app";
+      const response = await request(app.app)
+        .post("/api/invitations")
+        .set("Cookie", admin.cookie)
+        .set("X-CSRF-Token", admin.csrf)
+        .set("X-DevTrack-Request", "1")
+        .set("Origin", "https://devtrack-example.up.railway.app")
+        .send({ email: "railway-invite@test.dev" });
+      expect(response.status).toBe(201);
+      expect(response.body.url).toMatch(
+        /^https:\/\/devtrack-example\.up\.railway\.app\/accept-invitation#/,
+      );
+    } finally {
+      if (origin === undefined) delete process.env.APP_ORIGIN;
+      else process.env.APP_ORIGIN = origin;
+      if (renderUrl === undefined) delete process.env.RENDER_EXTERNAL_URL;
+      else process.env.RENDER_EXTERNAL_URL = renderUrl;
+      if (railwayDomain === undefined) delete process.env.RAILWAY_PUBLIC_DOMAIN;
+      else process.env.RAILWAY_PUBLIC_DOMAIN = railwayDomain;
+    }
+  });
   it("emails an invitation through SMTP and preserves older links if delivery fails", async () => {
     const keys = [
       "SMTP_HOST",
