@@ -1,5 +1,13 @@
 import "dotenv/config";
-import { beforeAll, afterAll, beforeEach, describe, it, expect } from "vitest";
+import {
+  beforeAll,
+  afterAll,
+  beforeEach,
+  describe,
+  it,
+  expect,
+  vi,
+} from "vitest";
 import { execFileSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import request from "supertest";
@@ -22,6 +30,8 @@ let admin: Actor,
 const testPassword = "TestOnly!Password2026";
 const sockets: Socket[] = [];
 const smtpKeys = [
+  "RESEND_API_KEY",
+  "RESEND_FROM",
   "SMTP_HOST",
   "SMTP_PORT",
   "SMTP_SECURE",
@@ -802,6 +812,57 @@ describe("PostgreSQL API and collaboration", () => {
         if (previous[key] === undefined) delete process.env[key];
         else process.env[key] = previous[key];
       }
+    }
+  });
+  it("uses Resend over HTTPS and preserves the previous invitation if delivery fails", async () => {
+    const previous = {
+      key: process.env.RESEND_API_KEY,
+      from: process.env.RESEND_FROM,
+    };
+    process.env.RESEND_API_KEY = "re_test_key";
+    process.env.RESEND_FROM = "invites@verified.example";
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: "email_1" }), { status: 200 }),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 401 }));
+    try {
+      const recipient = "resend-member@test.dev";
+      const sent = await api(admin, "post", "/invitations", {
+        email: recipient,
+      });
+      expect(sent.status).toBe(201);
+      expect(sent.body).toMatchObject({ delivery: "sent" });
+      expect(sent.body.url).toBeUndefined();
+      const [endpoint, requestOptions] = fetchMock.mock.calls[0];
+      expect(endpoint).toBe("https://api.resend.com/emails");
+      expect(requestOptions?.headers).toMatchObject({
+        Authorization: "Bearer re_test_key",
+      });
+      const message = JSON.parse(String(requestOptions?.body));
+      expect(message).toMatchObject({
+        from: "invites@verified.example",
+        to: [recipient],
+      });
+      expect(message.text).toContain("accept-invitation#");
+      const failed = await api(admin, "post", "/invitations", {
+        email: recipient,
+      });
+      expect(failed.status).toBe(502);
+      const invitations = await db.invitation.findMany({
+        where: { companyId: admin.user.companyId, email: recipient },
+        orderBy: { createdAt: "asc" },
+      });
+      expect(invitations).toHaveLength(2);
+      expect(invitations[0].revokedAt).toBeNull();
+      expect(invitations[1].revokedAt).not.toBeNull();
+    } finally {
+      fetchMock.mockRestore();
+      if (previous.key === undefined) delete process.env.RESEND_API_KEY;
+      else process.env.RESEND_API_KEY = previous.key;
+      if (previous.from === undefined) delete process.env.RESEND_FROM;
+      else process.env.RESEND_FROM = previous.from;
     }
   });
   it("keeps archived projects read-only", async () => {

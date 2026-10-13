@@ -14,7 +14,12 @@ import { Server } from "socket.io";
 import { Prisma, type User, type Task } from "@prisma/client";
 import { z, ZodError } from "zod";
 import { db, personSelect, taskInclude, projectInclude } from "./db";
-import { sendInvitationEmail, smtpSettings } from "./mail";
+import {
+  resendSettings,
+  sendInvitationEmail,
+  sendInvitationViaResend,
+  smtpSettings,
+} from "./mail";
 import {
   AppError,
   requireCondition as must,
@@ -472,7 +477,8 @@ export function createApplication() {
       .object({ email, jobTitle: jobTitle.default("") })
       .strict()
       .parse(req.body);
-    const smtp = smtpSettings();
+    const resend = resendSettings();
+    const smtp = resend ? null : smtpSettings();
     const token = randomToken();
     const invitation = await transaction(async (tx) => {
       must(
@@ -491,9 +497,17 @@ export function createApplication() {
       });
     });
     const url = `${appOrigin()}/accept-invitation#${token}`;
-    if (smtp) {
+    if (resend || smtp) {
       try {
-        await sendInvitationEmail(smtp, data.email, req.companyName, url);
+        if (resend)
+          await sendInvitationViaResend(
+            resend,
+            data.email,
+            req.companyName,
+            url,
+          );
+        else if (smtp)
+          await sendInvitationEmail(smtp, data.email, req.companyName, url);
       } catch {
         await db.invitation.update({
           where: { id: invitation.id },
@@ -501,7 +515,7 @@ export function createApplication() {
         });
         throw new AppError(
           502,
-          "Could not send the invitation email. Check SMTP settings and try again.",
+          "Could not send the invitation email. Check the email provider settings and try again.",
         );
       }
     }
@@ -517,8 +531,8 @@ export function createApplication() {
     });
     res.status(201).json({
       id: invitation.id,
-      delivery: smtp ? "sent" : "manual",
-      ...(smtp ? {} : { url }),
+      delivery: resend || smtp ? "sent" : "manual",
+      ...(resend || smtp ? {} : { url }),
     });
   });
   route("delete", "/api/invitations/:id", async (req, res) => {

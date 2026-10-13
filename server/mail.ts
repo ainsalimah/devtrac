@@ -10,6 +10,49 @@ type SmtpSettings = {
   auth?: { user: string; pass: string };
 };
 
+type ResendSettings = { apiKey: string; from: string };
+
+export function resendSettings(): ResendSettings | null {
+  const { RESEND_API_KEY, RESEND_FROM } = process.env;
+  if (!RESEND_API_KEY && !RESEND_FROM) return null;
+  if (
+    !RESEND_API_KEY?.trim() ||
+    !z.string().email().safeParse(RESEND_FROM).success
+  )
+    throw new AppError(
+      503,
+      "Email delivery is not configured correctly. Check Resend settings.",
+    );
+  return { apiKey: RESEND_API_KEY, from: RESEND_FROM! };
+}
+
+const invitationText = (companyName: string, url: string) =>
+  `${companyName} invited you to join their DevTrack workspace.\n\nAccept your invitation: ${url}\n\nThis link expires in 48 hours and can be used once. If you did not expect this invitation, you can ignore this email.`;
+
+export async function sendInvitationViaResend(
+  settings: ResendSettings,
+  to: string,
+  companyName: string,
+  url: string,
+) {
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${settings.apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: settings.from,
+      to: [to],
+      subject: "You're invited to DevTrack",
+      text: invitationText(companyName, url),
+    }),
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!response.ok)
+    throw new Error("Resend did not accept the invitation email.");
+}
+
 export function smtpSettings(): SmtpSettings | null {
   const {
     SMTP_HOST,
@@ -82,7 +125,7 @@ export async function sendInvitationEmail(
       from: settings.from,
       to,
       subject: "You're invited to DevTrack",
-      text: `${companyName} invited you to join their DevTrack workspace.\n\nAccept your invitation: ${url}\n\nThis link expires in 48 hours and can be used once. If you did not expect this invitation, you can ignore this email.`,
+      text: invitationText(companyName, url),
     });
   } finally {
     transport.close();

@@ -42,7 +42,14 @@ To try a new company, open **http://127.0.0.1:5173/register** or choose **New co
 
 ### Send invitations by email
 
-Invitation emails are sent automatically when SMTP is configured. Add these values to the ignored `.env` file after the database has been initialized, then restart DevTrack:
+For hosted DevTrack on Railway Free/Trial/Hobby, use Resend's HTTPS API. Verify a domain in Resend, create an API key with **Sending access**, then add these variables to the **devtrack service → Variables** in Railway (do not add them to GitHub):
+
+```dotenv
+RESEND_API_KEY="your-resend-api-key"
+RESEND_FROM="invites@your-verified-domain.com"
+```
+
+Apply the staged changes so Railway redeploys the service. The sender address must use your verified domain. Do not share the API key in chat or commit it. Resend takes priority when configured; local development or hosts that allow SMTP can instead use these variables in the ignored `.env` file:
 
 ```dotenv
 SMTP_HOST="smtp.example.com"
@@ -53,7 +60,7 @@ SMTP_USER="your-smtp-username"
 SMTP_PASSWORD="your-smtp-password-or-app-password"
 ```
 
-Use the host, port, credentials, and verified sender supplied by your email provider. Port 587 uses STARTTLS; for port 465 set `SMTP_SECURE=true`. Credentials can be omitted for a trusted local SMTP relay. Never commit real credentials. In **Members**, enter the recipient's email and select **Send invitation**. DevTrack reports success when the SMTP server accepts the message; actual inbox delivery still depends on the provider. If delivery fails, the new link is revoked and any earlier pending invitation remains valid. With no SMTP settings, the same form creates a one-time link you can copy manually.
+Use the host, port, credentials, and verified sender supplied by your email provider. Port 587 uses STARTTLS; for port 465 set `SMTP_SECURE=true`. Credentials can be omitted for a trusted local SMTP relay. Never commit real credentials. In **Members**, enter the recipient's email and select **Send invitation**. DevTrack reports success when the provider accepts the message; actual inbox delivery still depends on the provider. If delivery fails, the new link is revoked and any earlier pending invitation remains valid. With no email settings, the same form creates a one-time link you can copy manually.
 
 The default `APP_ORIGIN=http://127.0.0.1:5173` makes invitation links usable only on this computer. To invite someone on another device, DevTrack must be reachable at a public HTTPS origin and `APP_ORIGIN` must match it. Publishing is outside this local demo.
 
@@ -65,7 +72,7 @@ The default `APP_ORIGIN=http://127.0.0.1:5173` makes invitation links usable onl
 - **Board/List:** search by title/key, filter priority and assignee, drag cards, or use the task's keyboard-accessible Move task selector.
 - **Task detail:** description, checklist, comments, submissions, review decisions, and activity history.
 - **Members:** active company directory with optional job titles such as UI Designer. Admins set a title when inviting someone, edit it later, deactivate accounts, and revoke pending invitations. Job titles describe people's work and do not grant permissions.
-- **Invitations:** single-use links, valid for 48 hours. Configured SMTP sends the link to the invited address; otherwise the secret link is shown only on creation for manual sharing. A successfully sent replacement revokes older unused invitations for that email.
+- **Invitations:** single-use links, valid for 48 hours. Configured Resend HTTPS API or SMTP sends the link to the invited address; otherwise the secret link is shown only on creation for manual sharing. A successfully sent replacement revokes older unused invitations for that email.
 - **Companies:** an owner can create a new workspace. Users, projects, tasks, invitations, and activity are scoped to their company; project keys may be reused by different companies.
 
 ### Review workflow
@@ -183,7 +190,7 @@ Railway Free supports this single-service Express + Vite deployment and WebSocke
 4. In **Settings → Networking**, select **Generate Domain**. Railway supplies `RAILWAY_PUBLIC_DOMAIN` for invitation links and origin checks. The server listens on Railway's injected `PORT` and `0.0.0.0`. Apply staged changes and redeploy after adding the domain so the server receives it.
 5. Open the generated HTTPS URL. Register your own company and admin account, then create a project. The public deployment never runs the local demo seed. Invite links can be copied from the Members page.
 
-Railway Free/Trial blocks outbound SMTP, so leave SMTP variables unset and share invitation links manually for now. Automatic email delivery there would need an HTTPS email API integration.
+Railway Free/Trial/Hobby blocks outbound SMTP. Leave SMTP variables unset there; use `RESEND_API_KEY` and `RESEND_FROM` for automatic delivery, or share invitation links manually.
 
 ## Demo walkthrough
 
