@@ -24,6 +24,7 @@ import {
 import {
   acceptSchema,
   registerSchema,
+  jobTitle,
   email,
   loginSchema,
   projectSchema,
@@ -49,6 +50,7 @@ const publicUser = (u: User) => ({
   id: u.id,
   name: u.name,
   email: u.email,
+  jobTitle: u.jobTitle,
   isAdmin: u.isAdmin,
   active: u.active,
 });
@@ -311,6 +313,7 @@ export function createApplication() {
           companyId: invitation.companyId,
           name: data.name,
           email: invitation.email,
+          jobTitle: invitation.jobTitle,
           passwordHash,
         },
       });
@@ -434,6 +437,17 @@ export function createApplication() {
     io.to(`company:${req.actor.companyId}`).emit("access:changed", {});
     res.json({ ok: true });
   });
+  route("patch", "/api/users/:id/job-title", async (req, res) => {
+    must(req.actor.isAdmin, 403, "Admin access is required.");
+    const data = z.object({ jobTitle }).strict().parse(req.body);
+    const updated = await db.user.updateMany({
+      where: { id: String(req.params.id), companyId: req.actor.companyId },
+      data,
+    });
+    must(updated.count === 1, 404, "Account not found.");
+    io.to(`company:${req.actor.companyId}`).emit("access:changed", {});
+    res.json({ ok: true });
+  });
   route("get", "/api/invitations", async (req, res) => {
     must(req.actor.isAdmin, 403, "Admin access is required.");
     res.json(
@@ -442,6 +456,7 @@ export function createApplication() {
         select: {
           id: true,
           email: true,
+          jobTitle: true,
           expiresAt: true,
           usedAt: true,
           revokedAt: true,
@@ -453,7 +468,10 @@ export function createApplication() {
   });
   route("post", "/api/invitations", async (req, res) => {
     must(req.actor.isAdmin, 403, "Admin access is required.");
-    const data = z.object({ email }).strict().parse(req.body);
+    const data = z
+      .object({ email, jobTitle: jobTitle.default("") })
+      .strict()
+      .parse(req.body);
     const smtp = smtpSettings();
     const token = randomToken();
     const invitation = await transaction(async (tx) => {
@@ -466,6 +484,7 @@ export function createApplication() {
         data: {
           companyId: req.actor.companyId,
           email: data.email,
+          jobTitle: data.jobTitle,
           tokenHash: hash(token),
           expiresAt: new Date(Date.now() + 48 * 3600000),
         },

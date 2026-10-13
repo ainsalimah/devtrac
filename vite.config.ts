@@ -3,6 +3,9 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  optimizeDeps: {
+    esbuildOptions: { target: ["chrome120", "firefox120", "safari17"] },
+  },
   build: {
     outDir: "dist/client",
     target: ["chrome120", "firefox120", "safari17"],

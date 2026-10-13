@@ -64,7 +64,7 @@ The default `APP_ORIGIN=http://127.0.0.1:5173` makes invitation links usable onl
 - **Projects:** create projects as admin; project managers manage memberships, task assignments, and project settings.
 - **Board/List:** search by title/key, filter priority and assignee, drag cards, or use the task's keyboard-accessible Move task selector.
 - **Task detail:** description, checklist, comments, submissions, review decisions, and activity history.
-- **Members:** active company directory; admins invite/deactivate accounts and revoke pending invitations.
+- **Members:** active company directory with optional job titles such as UI Designer. Admins set a title when inviting someone, edit it later, deactivate accounts, and revoke pending invitations. Job titles describe people's work and do not grant permissions.
 - **Invitations:** single-use links, valid for 48 hours. Configured SMTP sends the link to the invited address; otherwise the secret link is shown only on creation for manual sharing. A successfully sent replacement revokes older unused invitations for that email.
 - **Companies:** an owner can create a new workspace. Users, projects, tasks, invitations, and activity are scoped to their company; project keys may be reused by different companies.
 

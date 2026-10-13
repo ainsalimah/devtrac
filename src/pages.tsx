@@ -448,7 +448,10 @@ export function ProjectSettings({
               <Avatar name={m.user.name} small />
               <span>
                 {m.user.name}
-                <small>{m.isManager ? "Project manager" : "Member"}</small>
+                <small>
+                  {m.user.jobTitle ? `${m.user.jobTitle} · ` : ""}
+                  {m.isManager ? "Project manager" : "Member"}
+                </small>
               </span>
               <Button
                 variant="ghost"
@@ -518,6 +521,7 @@ export function ProjectSettings({
 type Invitation = {
   id: string;
   email: string;
+  jobTitle: string;
   expiresAt: string;
   usedAt: string | null;
   revokedAt: string | null;
@@ -526,6 +530,7 @@ export function Members() {
   const { auth, users, notify } = useWorkspace(),
     client = useQueryClient();
   const [open, setOpen] = useState(false),
+    [editing, setEditing] = useState<Person | null>(null),
     [url, setUrl] = useState(""),
     [sentEmail, setSentEmail] = useState(""),
     [error, setError] = useState(""),
@@ -587,6 +592,7 @@ export function Members() {
             <tr>
               <th>Name</th>
               <th>Email</th>
+              <th>Job title</th>
               <th>Workspace role</th>
               <th>Status</th>
               {auth.user.isAdmin && (
@@ -606,6 +612,7 @@ export function Members() {
                   </span>
                 </td>
                 <td>{u.email}</td>
+                <td>{u.jobTitle || "—"}</td>
                 <td>{u.isAdmin ? "Admin" : "Member"}</td>
                 <td>
                   <span className={`badge ${u.active ? "badge-green" : ""}`}>
@@ -614,6 +621,17 @@ export function Members() {
                 </td>
                 {auth.user.isAdmin && (
                   <td>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={busy}
+                      onClick={() => {
+                        setEditing(u);
+                        setError("");
+                      }}
+                    >
+                      Edit title
+                    </Button>
                     {u.id !== auth.user.id && (
                       <Button
                         variant="ghost"
@@ -646,6 +664,7 @@ export function Members() {
                 <thead>
                   <tr>
                     <th>Email</th>
+                    <th>Job title</th>
                     <th>Status</th>
                     <th>Expires</th>
                     <th>Action</th>
@@ -655,6 +674,7 @@ export function Members() {
                   {invitations.data.map((i) => (
                     <tr key={i.id}>
                       <td>{i.email}</td>
+                      <td>{i.jobTitle || "—"}</td>
                       <td>
                         {i.usedAt
                           ? "Accepted"
@@ -740,8 +760,10 @@ export function Members() {
             className="form-stack"
             onSubmit={(e) => {
               e.preventDefault();
+              const form = new FormData(e.currentTarget);
               void run("/invitations", "POST", {
-                email: new FormData(e.currentTarget).get("email"),
+                email: form.get("email"),
+                jobTitle: form.get("jobTitle"),
               });
             }}
           >
@@ -754,10 +776,55 @@ export function Members() {
                 placeholder="teammate@company.com"
               />
             </label>
+            <label>
+              Job title (optional)
+              <input
+                name="jobTitle"
+                maxLength={80}
+                placeholder="e.g. UI Designer"
+              />
+            </label>
             <ErrorBox error={error} />
             <Button disabled={busy}>
               {busy ? "Sending…" : "Send invitation"}
             </Button>
+          </form>
+        )}
+      </Dialog>
+      <Dialog
+        open={Boolean(editing)}
+        onOpenChange={(next) => {
+          if (!next) setEditing(null);
+        }}
+        title="Edit job title"
+        description={
+          editing ? `Set ${editing.name}'s position in the team.` : ""
+        }
+      >
+        {editing && (
+          <form
+            className="form-stack"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const value = new FormData(e.currentTarget).get("jobTitle");
+              void run(`/users/${editing.id}/job-title`, "PATCH", {
+                jobTitle: value,
+              }).then((ok) => {
+                if (ok) setEditing(null);
+              });
+            }}
+          >
+            <label>
+              Job title
+              <input
+                name="jobTitle"
+                defaultValue={editing.jobTitle}
+                maxLength={80}
+                placeholder="e.g. UI Designer"
+              />
+            </label>
+            <ErrorBox error={error} />
+            <Button disabled={busy}>Save title</Button>
           </form>
         )}
       </Dialog>

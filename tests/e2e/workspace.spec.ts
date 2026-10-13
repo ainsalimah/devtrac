@@ -373,6 +373,10 @@ test("admin invitation creates a real account and cannot be reused", async ({
       .getByRole("dialog")
       .getByLabel("Email address")
       .fill("invited@devtrack.demo");
+    await admin
+      .getByRole("dialog")
+      .getByLabel("Job title (optional)")
+      .fill("UI Designer");
     await admin.getByRole("button", { name: "Send invitation" }).click();
     const link = admin.getByLabel("Invitation link", { exact: true });
     await expect(link).toBeVisible();
@@ -390,6 +394,10 @@ test("admin invitation creates a real account and cannot be reused", async ({
     await expect(
       guest.getByRole("heading", { name: "A clear view of what’s next." }),
     ).toBeVisible();
+    await guest.getByRole("link", { name: "Members", exact: true }).click();
+    await expect(guest.getByRole("row", { name: /Riley Guest/ })).toContainText(
+      "UI Designer",
+    );
     await guest.getByRole("button", { name: "Sign out" }).click();
     await guest.goto(url);
     await guest.getByLabel("Your name").fill("Another Guest");

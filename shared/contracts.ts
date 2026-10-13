@@ -13,6 +13,7 @@ export const email = z
   .max(254)
   .transform((s) => s.toLowerCase());
 export const password = z.string().min(12).max(128);
+export const jobTitle = z.string().trim().max(80);
 export const loginSchema = z
   .object({ email, password: z.string().min(1).max(128) })
   .strict();
@@ -102,6 +103,7 @@ export interface Person {
   id: string;
   name: string;
   email: string;
+  jobTitle: string;
   active: boolean;
   isAdmin: boolean;
 }

@@ -5,6 +5,7 @@ export const personSelect = {
   id: true,
   name: true,
   email: true,
+  jobTitle: true,
   isAdmin: true,
   active: true,
 } as const;

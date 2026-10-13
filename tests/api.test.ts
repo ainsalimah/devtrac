@@ -616,8 +616,14 @@ describe("PostgreSQL API and collaboration", () => {
   it("accepts an invitation once and rejects expired or revoked tokens", async () => {
     const created = await api(admin, "post", "/invitations", {
       email: "newmember@test.dev",
+      jobTitle: "UI Designer",
     });
     expect(created.status).toBe(201);
+    expect(
+      (await api(admin, "get", "/invitations")).body.find(
+        (invitation: { id: string }) => invitation.id === created.body.id,
+      ).jobTitle,
+    ).toBe("UI Designer");
     const token = new URL(created.body.url).hash.slice(1);
     const accept = (token: string) =>
       request(app.app)
@@ -625,6 +631,39 @@ describe("PostgreSQL API and collaboration", () => {
         .set("X-DevTrack-Request", "1")
         .send({ token, name: "New teammate", password: testPassword });
     expect((await accept(token)).status).toBe(201);
+    const invited = await db.user.findUniqueOrThrow({
+      where: { email: "newmember@test.dev" },
+    });
+    expect(invited.jobTitle).toBe("UI Designer");
+    expect(
+      (await api(admin, "get", "/users")).body.find(
+        (user: { id: string }) => user.id === invited.id,
+      ).jobTitle,
+    ).toBe("UI Designer");
+    expect(
+      (
+        await api(manager, "patch", `/users/${invited.id}/job-title`, {
+          jobTitle: "Backend Developer",
+        })
+      ).status,
+    ).toBe(403);
+    expect(
+      (
+        await api(admin, "patch", `/users/${invited.id}/job-title`, {
+          jobTitle: "Product Designer",
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (await db.user.findUniqueOrThrow({ where: { id: invited.id } })).jobTitle,
+    ).toBe("Product Designer");
+    expect(
+      (
+        await api(admin, "patch", `/users/${invited.id}/job-title`, {
+          jobTitle: "x".repeat(81),
+        })
+      ).status,
+    ).toBe(400);
     expect((await accept(token)).status).toBe(400);
     for (const variant of ["expired", "revoked"]) {
       const value = randomBytes(32).toString("hex");
