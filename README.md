@@ -9,15 +9,10 @@ Built with React + TypeScript + Vite, Express, Prisma/PostgreSQL, and Socket.IO.
 Open this folder in VS Code and use its terminal:
 
 ```powershell
-npm ci
-npm run db:local
-npm run db:generate
-npm run db:migrate
-npm run db:seed
-npm run dev
+powershell -NoProfile -ExecutionPolicy Bypass -File .\Start-DevTrack.ps1
 ```
 
-Open **http://127.0.0.1:5173**. Keep the terminal running. The browser app uses port 5173, the API/socket server uses 4100, and the separate PostgreSQL instance uses 55439.
+Open **http://127.0.0.1:5173**. Keep the terminal running. The launcher installs dependencies if needed, starts the dedicated local database, applies migrations, seeds fictional accounts, and starts the app. The browser app uses port 5173, the API/socket server uses 4100, and the separate PostgreSQL instance uses 55439.
 
 Requirements: Node.js 22.16 or newer compatible Node LTS; PostgreSQL binaries. The Windows helper defaults to `C:\Program Files\PostgreSQL\18\bin`; set `PG_BIN` if installed elsewhere. It creates a dedicated `.local-db` directory bound to loopback, generates a database password into ignored `.env`, and creates `devtrack` and `devtrack_test`. It does not modify your other PostgreSQL service. The first database initialization must be run before customizing `.env`.
 

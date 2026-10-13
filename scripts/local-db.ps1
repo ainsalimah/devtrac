@@ -28,8 +28,16 @@ DEMO_PASSWORD="LocalDemo!2026"
 }
 & "$pgBin\pg_ctl.exe" -D $dataPath status *> $null
 if ($LASTEXITCODE -ne 0) {
-  & "$pgBin\pg_ctl.exe" -D $dataPath -l (Join-Path $dataPath 'server.log') -o '-p 55439 -h 127.0.0.1' start
-  if ($LASTEXITCODE -ne 0) { throw 'Database startup failed.' }
+  $arguments = '-D "' + $dataPath + '" -p 55439 -h 127.0.0.1'
+  $databaseProcess = Start-Process -FilePath "$pgBin\postgres.exe" -ArgumentList $arguments -WorkingDirectory $dataPath -WindowStyle Hidden -RedirectStandardOutput (Join-Path $dataPath 'detached-output.log') -RedirectStandardError (Join-Path $dataPath 'detached-error.log') -PassThru
+  $ready = $false
+  for ($attempt = 0; $attempt -lt 180; $attempt++) {
+    & "$pgBin\pg_isready.exe" -h 127.0.0.1 -p 55439 *> $null
+    if ($LASTEXITCODE -eq 0) { $ready = $true; break }
+    if ($databaseProcess.HasExited) { throw 'Database startup failed. Check .local-db/detached-error.log.' }
+    Start-Sleep -Milliseconds 500
+  }
+  if (!$ready) { throw 'Database did not become ready. Check .local-db/detached-error.log.' }
 }
 $envText = Get-Content (Join-Path $projectRoot '.env') -Raw
 $dbUrl = [regex]::Match($envText, 'DATABASE_URL="([^"]+)"').Groups[1].Value
