@@ -3,9 +3,9 @@ import { createApplication } from "./app";
 import { db } from "./db";
 const { http, io } = createApplication();
 const port = Number(process.env.PORT || 4100);
-const host =
-  process.env.HOST ||
-  (process.env.RAILWAY_PROJECT_ID ? "0.0.0.0" : "127.0.0.1");
+const host = process.env.RAILWAY_PROJECT_ID
+  ? "0.0.0.0"
+  : process.env.HOST || "127.0.0.1";
 http.listen(port, host, () =>
   console.log(`DevTrack server listening on ${host}:${port}`),
 );
