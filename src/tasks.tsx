@@ -1,5 +1,5 @@
-import { useState, type ReactNode } from "react";
-import { useParams } from "react-router-dom";
+import { useEffect, useState, type ReactNode } from "react";
+import { useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   DndContext,
@@ -41,6 +41,7 @@ import { Avatar, ErrorBox, prettyDate, timeAgo, useWorkspace } from "./context";
 import { Button } from "./components/ui/button";
 import { Dialog } from "./components/ui/dialog";
 import { ProjectSettings } from "./pages";
+import { projectProgress } from "./progress";
 import {
   statuses,
   statusLabels,
@@ -203,6 +204,7 @@ function Column({
 
 export function TaskWorkspace({ mine = false }: { mine?: boolean }) {
   const { projectId } = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { auth, projects, notify } = useWorkspace(),
     client = useQueryClient();
   const project = projects.find((p) => p.id === projectId),
@@ -215,7 +217,7 @@ export function TaskWorkspace({ mine = false }: { mine?: boolean }) {
     [priority, setPriority] = useState(""),
     [person, setPerson] = useState(""),
     [mineTab, setMineTab] = useState("assigned"),
-    [selected, setSelected] = useState<string | null>(null),
+    [selected, setSelected] = useState<string | null>(searchParams.get("task")),
     [create, setCreate] = useState(false),
     [settings, setSettings] = useState(false),
     [filters, setFilters] = useState(false);
@@ -226,6 +228,11 @@ export function TaskWorkspace({ mine = false }: { mine?: boolean }) {
       api<TaskDTO[]>(`/tasks${mine ? "" : `?projectId=${projectId}`}`),
   });
   const all = query.data || [];
+  const progress = projectProgress(all);
+  useEffect(() => {
+    const taskId = searchParams.get("task");
+    if (taskId) setSelected(taskId);
+  }, [searchParams]);
   const visible = all.filter(
     (t) =>
       (!mine ||
@@ -360,6 +367,34 @@ export function TaskWorkspace({ mine = false }: { mine?: boolean }) {
         <div className="notice">
           This project is archived. Restore it in settings to make changes.
         </div>
+      )}
+      {!mine && (
+        <section className="project-progress" aria-label="Project progress">
+          <div>
+            <strong>{progress.percent}%</strong>
+            <span>complete</span>
+          </div>
+          <div>
+            <strong>{progress.TODO}</strong>
+            <span>to do</span>
+          </div>
+          <div>
+            <strong>{progress.IN_PROGRESS}</strong>
+            <span>in progress</span>
+          </div>
+          <div>
+            <strong>{progress.REVIEW}</strong>
+            <span>in review</span>
+          </div>
+          <div>
+            <strong>{progress.overdue}</strong>
+            <span>overdue</span>
+          </div>
+          <div>
+            <strong>{progress.waitingReview}</strong>
+            <span>review waiting 2+ days</span>
+          </div>
+        </section>
       )}
       <div className="view-bar">
         <div className="segmented">
@@ -561,7 +596,16 @@ export function TaskWorkspace({ mine = false }: { mine?: boolean }) {
           </div>
         </DndContext>
       )}
-      {selected && <TaskDialog id={selected} close={() => setSelected(null)} />}
+      {selected && (
+        <TaskDialog
+          id={selected}
+          close={() => {
+            setSelected(null);
+            if (searchParams.has("task"))
+              setSearchParams({}, { replace: true });
+          }}
+        />
+      )}
       <Dialog
         open={create}
         onOpenChange={setCreate}

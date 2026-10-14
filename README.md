@@ -2,7 +2,7 @@
 
 DevTrack adalah aplikasi manajemen proyek untuk tim pengembang perangkat lunak. Anggota dapat membagi tugas, mengirim hasil kerja, meminta revisi, dan menyelesaikan tugas setelah reviewer yang berbeda dari penanggung jawab menyetujuinya.
 
-**Coba aplikasi online:** [Buka DevTrack](https://devtrack-production-6fae.up.railway.app/). Buat workspace baru untuk mencoba aplikasi dengan akun sendiri.
+**Coba aplikasi online:** [Buka DevTrack](https://devtrack-production-6fae.up.railway.app/). Pilih **Explore a sample workspace** untuk masuk ke demo fiktif, atau buat workspace sendiri.
 
 Aplikasi ini dibuat dengan React, TypeScript, Vite, Express, Prisma, PostgreSQL, dan Socket.IO. Antarmuka menggunakan Tailwind, komponen Radix bergaya shadcn, TanStack Query, dan dnd-kit. Semua nama, proyek, email, dan tautan dalam data demo bersifat fiktif.
 
@@ -29,6 +29,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/local-db.ps1 -Stop
 ```
 
 ### Akun demo fiktif
+
+Di situs online, tombol **Explore a sample workspace** membuat workspace contoh terpisah untuk setiap pengunjung. Gunakan pilihan peran di kanan atas untuk berganti antara Alex sebagai manajer, Jamie sebagai developer, dan Sam sebagai reviewer. Coba tugas di proyek **Website launch**, lalu buka ikon lonceng untuk melihat notifikasi tugas dan review. Data demo berlaku 24 jam, kemudian dihapus otomatis. Demo tidak dapat mengirim undangan.
 
 Kata sandi awal semua akun demo lokal adalah **`LocalDemo!2026`**. Ini kredensial demo yang sengaja didokumentasikan, bukan kata sandi produksi. Atur `DEMO_PASSWORD` sebelum pengisian data pertama jika ingin menggantinya. Pengisian ulang tidak menghapus akun, kata sandi, proyek, atau pekerjaan yang sudah ada.
 
@@ -68,11 +70,14 @@ Nilai awal `APP_ORIGIN=http://127.0.0.1:5173` membuat tautan undangan hanya berf
 
 ## Fitur utama
 
-- **Overview:** ringkasan proyek, jumlah tugas, pekerjaan pribadi, dan aktivitas tim terbaru.
+- **Overview:** ringkasan proyek, jumlah tugas, pekerjaan pribadi, aktivitas tim terbaru, dan progres penyelesaian per proyek.
 - **My tasks:** tugas pribadi serta antrean review terpisah.
 - **Projects:** admin membuat proyek. Manajer proyek mengelola anggota, tugas, dan pengaturan proyek.
 - **Board/List:** cari berdasarkan judul/kunci, saring prioritas dan penanggung jawab, seret kartu, atau gunakan pilihan **Move task** yang dapat dioperasikan dengan keyboard.
 - **Task detail:** deskripsi, checklist, komentar, pengajuan hasil, keputusan review, dan riwayat aktivitas.
+- **Project progress:** jumlah tugas per status, tugas terlambat, dan pengajuan review yang menunggu lebih dari dua hari.
+- **Notifications:** ikon lonceng menampilkan penugasan baru, permintaan review, persetujuan, revisi, dan tugas yang dibuka kembali. Hanya penerima yang dapat membaca notifikasinya.
+- **One-click demo:** workspace fiktif terpisah dengan peran manajer, developer, dan reviewer yang dapat diganti tanpa membuat akun.
 - **Members:** daftar anggota dengan jabatan opsional, misalnya UI Designer. Admin dapat mengisi atau mengubah jabatan, menonaktifkan akun, serta mencabut undangan. Jabatan hanya menjelaskan pekerjaan seseorang dan tidak memberikan hak akses.
 - **Invitations:** tautan sekali pakai berlaku 48 jam. Resend atau SMTP yang terkonfigurasi mengirimkannya ke email penerima. Jika tidak, tautan rahasia hanya ditampilkan saat dibuat untuk dibagikan manual. Undangan pengganti yang berhasil terkirim mencabut undangan lama yang belum digunakan untuk email yang sama.
 - **Companies:** pemilik dapat membuat workspace baru. Pengguna, proyek, tugas, undangan, dan aktivitas dibatasi berdasarkan perusahaan. Kunci proyek yang sama dapat digunakan perusahaan berbeda.
@@ -190,11 +195,13 @@ Railway Free mendukung satu layanan Express + Vite dan WebSocket ini. Kredit uji
 2. Di **Variables**, isi `DATABASE_URL` dengan connection string **pooled** dari proyek Neon `DevTrack`, lalu atur `COOKIE_SECURE=true` dan `NODE_ENV=production`. Simpan connection string hanya di Railway. Jangan commit atau tempel di chat. Jangan salin seluruh `.env` lokal.
 3. Di **Settings → Build**, atur perintah build menjadi `npm run db:generate && npm run build`. Jika perintah saat ini diawali `npm ci --include=dev &&`, hapus awalan itu: Railpack sudah memasang dependensi, sedangkan pemasangan ulang saat build dapat gagal dengan `EBUSY` pada cache `node_modules/.vite`. Di **Settings → Deploy**, atur perintah mulai menjadi `npm run db:migrate && npm start` dan jalur healthcheck menjadi `/api/health`.
 4. Di **Settings → Networking**, pilih **Generate Domain**. Railway menyediakan `RAILWAY_PUBLIC_DOMAIN` untuk tautan undangan dan pemeriksaan origin. Server memakai `PORT` dari Railway dan mendengarkan pada `0.0.0.0`. Terapkan perubahan yang tertunda dan deploy ulang setelah menambahkan domain.
-5. Buka URL HTTPS yang dibuat. Daftarkan perusahaan dan akun admin sendiri, lalu buat proyek. Deploy publik tidak mengisi akun demo lokal. Tautan undangan dapat disalin dari **Members**.
+5. Buka URL HTTPS yang dibuat. Pilih demo satu klik atau daftarkan perusahaan dan akun admin sendiri, lalu buat proyek. Deploy publik tidak mengisi akun demo lokal dengan kata sandi yang didokumentasikan. Tautan undangan dapat disalin dari **Members**.
 
 Railway Free/Trial/Hobby memblokir SMTP keluar. Biarkan variabel SMTP kosong. Gunakan `RESEND_API_KEY` dan `RESEND_FROM` untuk pengiriman otomatis, atau bagikan tautan undangan manual. Resend memerlukan domain pengirim yang terverifikasi.
 
 ## Skenario demo
+
+Di demo online, ganti peran memakai pilihan akun di bagian kanan atas. Untuk akun demo lokal, masuk dengan alamat email masing-masing di jendela browser berbeda.
 
 1. Masuk sebagai manajer. Buka **Website redesign**, lalu buat tugas untuk Jamie dengan Sam sebagai reviewer.
 2. Masuk sebagai developer di jendela lain. Pindahkan tugas ke **In progress**, tambahkan dan selesaikan checklist, lalu ajukan tautan hasil kerja.

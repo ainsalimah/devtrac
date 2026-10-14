@@ -19,6 +19,7 @@ import {
   LayoutDashboard,
   LogOut,
   Menu,
+  Bell,
   Users,
   X,
   WifiOff,
@@ -27,6 +28,8 @@ import { api, ApiError, setCsrf, type Auth } from "./api";
 import type { Person, ProjectDTO } from "../shared/contracts";
 import { WorkspaceContext, Avatar, ErrorBox } from "./context";
 import { Button } from "./components/ui/button";
+import { Dialog } from "./components/ui/dialog";
+import { timeAgo, useWorkspace } from "./context";
 import { Overview, Projects, Members } from "./pages";
 import { TaskWorkspace } from "./tasks";
 
@@ -75,6 +78,17 @@ function SignIn({ onSuccess }: { onSuccess: (auth: Auth) => void }) {
             body: { email: data.get("email"), password: data.get("password") },
           }),
         );
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function startDemo() {
+    setBusy(true);
+    setError("");
+    try {
+      onSuccess(await api<Auth>("/auth/demo", { method: "POST", body: {} }));
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -212,6 +226,16 @@ function SignIn({ onSuccess }: { onSuccess: (auth: Auth) => void }) {
               <ArrowRight size={16} />
             </Button>
           </form>
+          {!accept && (
+            <button
+              type="button"
+              className="demo-entry"
+              disabled={busy}
+              onClick={startDemo}
+            >
+              Explore a sample workspace <ArrowRight size={15} />
+            </button>
+          )}
           <p className="login-note">
             {accept ? (
               "Invitation links can only be used once."
@@ -230,6 +254,83 @@ function SignIn({ onSuccess }: { onSuccess: (auth: Auth) => void }) {
         </div>
       </section>
     </main>
+  );
+}
+
+type Notice = {
+  id: string;
+  text: string;
+  projectId: string;
+  taskId: string | null;
+  readAt: string | null;
+  createdAt: string;
+};
+
+function Notifications() {
+  const { notify } = useWorkspace();
+  const client = useQueryClient();
+  const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
+  const query = useQuery({
+    queryKey: ["notifications"],
+    queryFn: () => api<Notice[]>("/notifications"),
+  });
+  const notices = query.data || [];
+  async function openNotice(notice: Notice) {
+    try {
+      if (!notice.readAt)
+        await api(`/notifications/${notice.id}/read`, {
+          method: "POST",
+          body: {},
+        });
+      await client.invalidateQueries({ queryKey: ["notifications"] });
+      setOpen(false);
+      navigate(
+        `/projects/${notice.projectId}${notice.taskId ? `?task=${notice.taskId}` : ""}`,
+      );
+    } catch (e) {
+      notify((e as Error).message);
+    }
+  }
+  return (
+    <>
+      <button
+        className="notification-trigger"
+        aria-label={`Notifications, ${notices.filter((n) => !n.readAt).length} unread`}
+        onClick={() => setOpen(true)}
+      >
+        <Bell size={17} />
+        {notices.some((n) => !n.readAt) && (
+          <span className="notification-dot" />
+        )}
+      </button>
+      <Dialog
+        open={open}
+        onOpenChange={setOpen}
+        title="Notifications"
+        description="Task assignments and review updates just for you."
+      >
+        <ErrorBox error={query.error} />
+        {query.isPending ? (
+          <div className="empty-state">Loading notifications…</div>
+        ) : notices.length ? (
+          <div className="notification-list">
+            {notices.map((notice) => (
+              <button
+                key={notice.id}
+                className={`notification-item ${notice.readAt ? "" : "unread"}`}
+                onClick={() => void openNotice(notice)}
+              >
+                <span>{notice.text}</span>
+                <small>{timeAgo(notice.createdAt)}</small>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="empty-state">You're all caught up.</div>
+        )}
+      </Dialog>
+    </>
   );
 }
 export default function App() {
@@ -272,7 +373,14 @@ export default function App() {
     if (!auth) return;
     const socket = io({ auth: { csrfToken: auth.csrfToken } });
     const refresh = () => {
-      for (const key of ["projects", "users", "tasks", "task", "activities"])
+      for (const key of [
+        "projects",
+        "users",
+        "tasks",
+        "task",
+        "activities",
+        "notifications",
+      ])
         void client.invalidateQueries({ queryKey: [key] });
     };
     socket.on("connect", () => {
@@ -327,6 +435,20 @@ export default function App() {
       setCsrf("");
       client.clear();
       navigate("/login");
+    } catch (e) {
+      setToast((e as Error).message);
+    }
+  };
+  const switchDemo = async (persona: string) => {
+    try {
+      const value = await api<Auth>("/auth/demo/switch", {
+        method: "POST",
+        body: { persona },
+      });
+      setCsrf(value.csrfToken);
+      client.clear();
+      client.setQueryData(["auth"], value);
+      navigate("/");
     } catch (e) {
       setToast((e as Error).message);
     }
@@ -429,7 +551,19 @@ export default function App() {
               <strong>Team projects</strong>
             </span>
             <span className="topbar-right">
-              <span className="subtle-pill">Local workspace</span>
+              {auth.workspace.demo ? (
+                <select
+                  className="demo-switch"
+                  aria-label="Switch demo role"
+                  value={auth.user.demoPersona || "manager"}
+                  onChange={(e) => void switchDemo(e.target.value)}
+                >
+                  <option value="manager">Alex · Manager</option>
+                  <option value="developer">Jamie · Developer</option>
+                  <option value="reviewer">Sam · Reviewer</option>
+                </select>
+              ) : null}
+              <Notifications />
               <Avatar name={auth.user.name} small />
               <button className="signout-button" onClick={logout}>
                 <LogOut size={15} aria-hidden="true" />

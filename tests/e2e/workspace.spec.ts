@@ -5,6 +5,30 @@ import AxeBuilder from "@axe-core/playwright";
 import type { Person, ProjectDTO, TaskDTO } from "../../shared/contracts";
 const password = process.env.DEMO_PASSWORD!;
 const screenshotDir = "docs/screenshots";
+test("one-click demo shows project progress, role switching and notifications", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page
+    .getByRole("button", { name: "Explore a sample workspace" })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "A clear view of what’s next." }),
+  ).toBeVisible();
+  await page
+    .getByRole("link", { name: /Website launch/ })
+    .first()
+    .click();
+  await expect(
+    page.getByRole("region", { name: "Project progress" }),
+  ).toContainText("review waiting 2+ days");
+  await page.getByLabel("Switch demo role").selectOption("reviewer");
+  await expect(page.getByLabel("Switch demo role")).toHaveValue("reviewer");
+  await page.getByRole("button", { name: /Notifications/ }).click();
+  await expect(
+    page.getByRole("dialog", { name: "Notifications" }),
+  ).toContainText("waiting for your decision");
+});
 async function login(page: Page, role: string) {
   await page.goto("/");
   await page.getByLabel("Email address").fill(`${role}@devtrack.demo`);

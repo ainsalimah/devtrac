@@ -1,7 +1,7 @@
 import type { Person } from "../shared/contracts";
 export interface Auth {
   user: Person;
-  workspace: { id: string; name: string };
+  workspace: { id: string; name: string; demo: boolean };
   csrfToken: string;
 }
 let csrf = "";

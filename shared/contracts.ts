@@ -106,6 +106,7 @@ export interface Person {
   jobTitle: string;
   active: boolean;
   isAdmin: boolean;
+  demoPersona?: string | null;
 }
 export interface Membership {
   userId: string;

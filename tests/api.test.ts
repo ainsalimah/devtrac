@@ -122,6 +122,7 @@ beforeAll(async () => {
   const dbModule = await import("../server/db");
   db = dbModule.db;
   for (const table of [
+    "Notification",
     "Review",
     "Submission",
     "Comment",
@@ -214,6 +215,111 @@ afterAll(async () => {
   }
 });
 describe("PostgreSQL API and collaboration", () => {
+  it("creates isolated demos and switches only among its own sample roles", async () => {
+    const startDemo = () =>
+      request(app.app)
+        .post("/api/auth/demo")
+        .set("X-DevTrack-Request", "1")
+        .set("Origin", "http://127.0.0.1:5173")
+        .send({});
+    const first = await startDemo();
+    const second = await startDemo();
+    expect(first.status).toBe(201);
+    expect(second.status).toBe(201);
+    expect(first.body.workspace.demo).toBe(true);
+    expect(first.body.workspace.id).not.toBe(second.body.workspace.id);
+    const firstActor: Actor = {
+      user: await db.user.findUniqueOrThrow({
+        where: { id: first.body.user.id },
+      }),
+      cookie: first.headers["set-cookie"][0].split(";")[0],
+      csrf: first.body.csrfToken,
+    };
+    const ownProjects = await api(firstActor, "get", "/projects");
+    expect(ownProjects.body).toHaveLength(1);
+    expect(
+      (
+        await api(
+          firstActor,
+          "get",
+          `/tasks?projectId=${ownProjects.body[0].id}`,
+        )
+      ).body,
+    ).toHaveLength(4);
+    expect((await api(firstActor, "get", `/tasks/${taskId}`)).status).toBe(404);
+    const switched = await api(firstActor, "post", "/auth/demo/switch", {
+      persona: "reviewer",
+    });
+    expect(switched.status).toBe(200);
+    expect(switched.body.user.demoPersona).toBe("reviewer");
+    const reviewerActor: Actor = {
+      user: await db.user.findUniqueOrThrow({
+        where: { id: switched.body.user.id },
+      }),
+      cookie: switched.headers["set-cookie"][0].split(";")[0],
+      csrf: switched.body.csrfToken,
+    };
+    expect(
+      (await api(reviewerActor, "get", "/notifications")).body,
+    ).toHaveLength(1);
+    expect(
+      (await api(admin, "post", "/auth/demo/switch", { persona: "manager" }))
+        .status,
+    ).toBe(403);
+    expect(
+      (await api(reviewerActor, "get", `/projects/${projectId}`)).status,
+    ).toBe(404);
+    await db.company.update({
+      where: { id: first.body.workspace.id },
+      data: { demoExpiresAt: new Date(Date.now() - 1000) },
+    });
+    expect((await api(reviewerActor, "get", "/auth/me")).status).toBe(401);
+    const { cleanupExpiredDemos } = await import("../server/demo");
+    await cleanupExpiredDemos();
+    expect(
+      await db.company.findUnique({ where: { id: first.body.workspace.id } }),
+    ).toBeNull();
+    expect(
+      await db.company.findUnique({ where: { id: second.body.workspace.id } }),
+    ).not.toBeNull();
+  });
+  it("keeps task notifications private and records review decisions", async () => {
+    const assigned = await api(developer, "get", "/notifications");
+    const reviewQueue = await api(reviewer, "get", "/notifications");
+    expect(
+      assigned.body.some((n: { text: string }) => n.text.includes("assigned")),
+    ).toBe(true);
+    expect(
+      reviewQueue.body.some((n: { text: string }) =>
+        n.text.includes("selected to review"),
+      ),
+    ).toBe(true);
+    const id = assigned.body[0].id;
+    expect(
+      (await api(reviewer, "post", `/notifications/${id}/read`)).status,
+    ).toBe(404);
+    expect(
+      (await api(developer, "post", `/notifications/${id}/read`)).status,
+    ).toBe(200);
+    expect(
+      (await api(developer, "get", "/notifications")).body.find(
+        (n: { id: string }) => n.id === id,
+      ).readAt,
+    ).toBeTruthy();
+    await move();
+    await submit();
+    expect(
+      (await api(reviewer, "get", "/notifications")).body.some(
+        (n: { text: string }) => n.text.includes("Review requested"),
+      ),
+    ).toBe(true);
+    await review("CHANGES_REQUESTED", "Please fix contrast.");
+    expect(
+      (await api(developer, "get", "/notifications")).body.some(
+        (n: { text: string }) => n.text.includes("Changes requested"),
+      ),
+    ).toBe(true);
+  });
   it("registers a new company and isolates its admin, projects, invitations, tasks and sockets", async () => {
     const registration = await request(app.app)
       .post("/api/auth/register")

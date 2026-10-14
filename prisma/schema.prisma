@@ -32,12 +32,13 @@ enum Decision {
 }
 
 model Company {
-  id          String       @id @default(uuid())
-  name        String
-  createdAt   DateTime     @default(now())
-  users       User[]
-  projects    Project[]
-  invitations Invitation[]
+  id            String       @id @default(uuid())
+  name          String
+  createdAt     DateTime     @default(now())
+  demoExpiresAt DateTime?
+  users         User[]
+  projects      Project[]
+  invitations   Invitation[]
 }
 
 model User {
@@ -47,6 +48,7 @@ model User {
   email         String          @unique
   name          String
   jobTitle      String          @default("")
+  demoPersona   String?
   passwordHash  String
   isAdmin       Boolean         @default(false)
   active        Boolean         @default(true)
@@ -59,6 +61,7 @@ model User {
   submissions   Submission[]
   reviews       Review[]
   activities    Activity[]
+  notifications Notification[]
 
   @@index([companyId])
 }
@@ -90,17 +93,18 @@ model Invitation {
 }
 
 model Project {
-  id          String          @id @default(uuid())
-  companyId   String
-  company     Company         @relation(fields: [companyId], references: [id])
-  name        String
-  key         String
-  description String          @default("")
-  archived    Boolean         @default(false)
-  createdAt   DateTime        @default(now())
-  members     ProjectMember[]
-  tasks       Task[]
-  activities  Activity[]
+  id            String          @id @default(uuid())
+  companyId     String
+  company       Company         @relation(fields: [companyId], references: [id])
+  name          String
+  key           String
+  description   String          @default("")
+  archived      Boolean         @default(false)
+  createdAt     DateTime        @default(now())
+  members       ProjectMember[]
+  tasks         Task[]
+  activities    Activity[]
+  notifications Notification[]
 
   @@unique([companyId, key])
   @@index([companyId])
@@ -118,28 +122,29 @@ model ProjectMember {
 }
 
 model Task {
-  id          String          @id @default(uuid())
-  number      Int             @unique @default(autoincrement())
-  projectId   String
-  project     Project         @relation(fields: [projectId], references: [id])
-  title       String
-  description String          @default("")
-  type        TaskType        @default(TASK)
-  priority    Priority        @default(MEDIUM)
-  status      Status          @default(TODO)
-  position    Float           @default(0)
-  dueDate     DateTime?
-  version     Int             @default(1)
-  assigneeId  String
-  reviewerId  String
-  assignee    User            @relation("Assignee", fields: [assigneeId], references: [id])
-  reviewer    User            @relation("Reviewer", fields: [reviewerId], references: [id])
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
-  checklist   ChecklistItem[]
-  comments    Comment[]
-  submissions Submission[]
-  activities  Activity[]
+  id            String          @id @default(uuid())
+  number        Int             @unique @default(autoincrement())
+  projectId     String
+  project       Project         @relation(fields: [projectId], references: [id])
+  title         String
+  description   String          @default("")
+  type          TaskType        @default(TASK)
+  priority      Priority        @default(MEDIUM)
+  status        Status          @default(TODO)
+  position      Float           @default(0)
+  dueDate       DateTime?
+  version       Int             @default(1)
+  assigneeId    String
+  reviewerId    String
+  assignee      User            @relation("Assignee", fields: [assigneeId], references: [id])
+  reviewer      User            @relation("Reviewer", fields: [reviewerId], references: [id])
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  checklist     ChecklistItem[]
+  comments      Comment[]
+  submissions   Submission[]
+  activities    Activity[]
+  notifications Notification[]
 
   @@index([projectId, status, position])
   @@index([assigneeId, status])
@@ -212,4 +217,21 @@ model Activity {
   @@index([projectId, createdAt])
   @@index([taskId, createdAt])
   @@index([userId])
+}
+
+model Notification {
+  id          String    @id @default(uuid())
+  recipientId String
+  projectId   String
+  taskId      String?
+  text        String
+  readAt      DateTime?
+  createdAt   DateTime  @default(now())
+  recipient   User      @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  task        Task?     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([recipientId, readAt, createdAt])
+  @@index([projectId])
+  @@index([taskId])
 }

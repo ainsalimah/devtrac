@@ -23,6 +23,7 @@ execFileSync(
 );
 const { db } = await import("../server/db");
 for (const table of [
+  "Notification",
   "Review",
   "Submission",
   "Comment",

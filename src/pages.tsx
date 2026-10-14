@@ -22,6 +22,7 @@ import { Dialog } from "./components/ui/dialog";
 import type { Person, ProjectDTO, TaskDTO } from "../shared/contracts";
 import { statusLabels } from "../shared/contracts";
 import { TaskDialog } from "./tasks";
+import { projectProgress } from "./progress";
 
 export function Overview() {
   const { auth, projects } = useWorkspace();
@@ -121,7 +122,7 @@ export function Overview() {
             {projects.length ? (
               projects.map((p) => {
                 const pt = all.filter((t) => t.projectId === p.id),
-                  done = pt.filter((t) => t.status === "DONE").length;
+                  progress = projectProgress(pt);
                 return (
                   <Link
                     to={`/projects/${p.id}`}
@@ -137,12 +138,13 @@ export function Overview() {
                       <div className="progress-track">
                         <span
                           style={{
-                            width: `${pt.length ? (done / pt.length) * 100 : 0}%`,
+                            width: `${progress.percent}%`,
                           }}
                         />
                       </div>
                       <small>
-                        {done} of {pt.length} tasks complete
+                        {progress.DONE} of {progress.total} tasks complete ·{" "}
+                        {progress.REVIEW} in review · {progress.overdue} overdue
                       </small>
                     </div>
                     <ArrowUpRight size={17} />

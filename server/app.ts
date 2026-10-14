@@ -14,6 +14,7 @@ import { Server } from "socket.io";
 import { Prisma, type User, type Task } from "@prisma/client";
 import { z, ZodError } from "zod";
 import { db, personSelect, taskInclude, projectInclude } from "./db";
+import { cleanupExpiredDemos, createDemoWorkspace } from "./demo";
 import {
   resendSettings,
   sendInvitationEmail,
@@ -58,6 +59,7 @@ const publicUser = (u: User) => ({
   jobTitle: u.jobTitle,
   isAdmin: u.isAdmin,
   active: u.active,
+  demoPersona: u.demoPersona,
 });
 const cookieName = "devtrack_session";
 const appOrigin = () =>
@@ -147,6 +149,17 @@ async function activity(
 ) {
   return tx.activity.create({ data: { userId, projectId, text, taskId } });
 }
+async function notification(
+  tx: Tx,
+  recipientId: string,
+  projectId: string,
+  text: string,
+  taskId?: string,
+) {
+  return tx.notification.create({
+    data: { recipientId, projectId, taskId, text },
+  });
+}
 async function changeTask(
   tx: Tx,
   task: Task,
@@ -169,7 +182,11 @@ async function resolveSession(token?: string) {
     where: { id: hash(token) },
     include: { user: { include: { company: true } } },
   });
-  return session && session.expiresAt > new Date() && session.user.active
+  return session &&
+    session.expiresAt > new Date() &&
+    session.user.active &&
+    (!session.user.company.demoExpiresAt ||
+      session.user.company.demoExpiresAt > new Date())
     ? session
     : null;
 }
@@ -229,7 +246,12 @@ export function createApplication() {
     for (const socket of io.sockets.sockets.values())
       if (socket.data.sessionId === sessionId) socket.disconnect(true);
   }
-  async function signIn(res: Response, user: User, companyName: string) {
+  async function signIn(
+    res: Response,
+    user: User,
+    companyName: string,
+    demo = false,
+  ) {
     const token = randomToken();
     const csrfToken = randomToken();
     await db.session.create({
@@ -242,7 +264,7 @@ export function createApplication() {
     });
     res.cookie(cookieName, token, sessionCookie).json({
       user: publicUser(user),
-      workspace: { id: user.companyId, name: companyName },
+      workspace: { id: user.companyId, name: companyName, demo },
       csrfToken,
     });
   }
@@ -260,7 +282,7 @@ export function createApplication() {
       "Email or password is incorrect.",
     );
     await revokeExistingSession(req);
-    await signIn(res, user, user.company.name);
+    await signIn(res, user, user.company.name, !!user.company.demoExpiresAt);
   });
   app.post("/api/auth/register", authLimiter, async (req, res) => {
     const data = registerSchema.parse(req.body);
@@ -290,6 +312,13 @@ export function createApplication() {
     await revokeExistingSession(req);
     res.status(201);
     await signIn(res, user, company.name);
+  });
+  app.post("/api/auth/demo", authLimiter, async (req, res) => {
+    const { company, user } = await createDemoWorkspace();
+    await revokeExistingSession(req);
+    res.status(201);
+    await signIn(res, user, company.name, true);
+    void cleanupExpiredDemos().catch(() => undefined);
   });
   app.post("/api/auth/accept", authLimiter, async (req, res) => {
     const data = acceptSchema.parse(req.body);
@@ -369,10 +398,84 @@ export function createApplication() {
   route("get", "/api/auth/me", async (req, res) =>
     res.json({
       user: publicUser(req.actor),
-      workspace: { id: req.actor.companyId, name: req.companyName },
+      workspace: {
+        id: req.actor.companyId,
+        name: req.companyName,
+        demo: !!(
+          await db.company.findUnique({
+            where: { id: req.actor.companyId },
+            select: { demoExpiresAt: true },
+          })
+        )?.demoExpiresAt,
+      },
       csrfToken: req.csrfToken,
     }),
   );
+  route("post", "/api/auth/demo/switch", async (req, res) => {
+    const { persona } = z
+      .object({ persona: z.enum(["manager", "developer", "reviewer"]) })
+      .strict()
+      .parse(req.body);
+    const company = await db.company.findUnique({
+      where: { id: req.actor.companyId },
+    });
+    must(
+      req.actor.demoPersona &&
+        company?.demoExpiresAt &&
+        company.demoExpiresAt > new Date(),
+      403,
+      "Demo role switching is unavailable.",
+    );
+    const target = await db.user.findFirst({
+      where: { companyId: company.id, demoPersona: persona, active: true },
+    });
+    must(target, 404, "Demo account not found.");
+    await revokeExistingSession(req);
+    await signIn(res, target, company.name, true);
+  });
+  route("get", "/api/notifications", async (req, res) => {
+    res.json(
+      await db.notification.findMany({
+        where: {
+          recipientId: req.actor.id,
+          project: {
+            companyId: req.actor.companyId,
+            ...(req.actor.isAdmin
+              ? {}
+              : { members: { some: { userId: req.actor.id } } }),
+          },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 40,
+        select: {
+          id: true,
+          text: true,
+          projectId: true,
+          taskId: true,
+          readAt: true,
+          createdAt: true,
+        },
+      }),
+    );
+  });
+  route("post", "/api/notifications/:id/read", async (req, res) => {
+    const id = z.string().uuid().parse(req.params.id);
+    const result = await db.notification.updateMany({
+      where: {
+        id,
+        recipientId: req.actor.id,
+        project: {
+          companyId: req.actor.companyId,
+          ...(req.actor.isAdmin
+            ? {}
+            : { members: { some: { userId: req.actor.id } } }),
+        },
+      },
+      data: { readAt: new Date() },
+    });
+    must(result.count === 1, 404, "Notification not found.");
+    res.json({ ok: true });
+  });
   route("post", "/api/auth/logout", async (req, res) => {
     await db.session.delete({ where: { id: req.sessionId } });
     for (const s of io.sockets.sockets.values())
@@ -473,6 +576,11 @@ export function createApplication() {
   });
   route("post", "/api/invitations", async (req, res) => {
     must(req.actor.isAdmin, 403, "Admin access is required.");
+    must(
+      !req.actor.demoPersona,
+      403,
+      "Invitations are unavailable in sample workspaces.",
+    );
     const data = z
       .object({ email, jobTitle: jobTitle.default("") })
       .strict()
@@ -720,6 +828,20 @@ export function createApplication() {
         },
       });
       await activity(tx, req.actor.id, projectId, "created the task", task.id);
+      await notification(
+        tx,
+        task.assigneeId,
+        projectId,
+        `You were assigned ${p.key}-${task.number}: ${task.title}.`,
+        task.id,
+      );
+      await notification(
+        tx,
+        task.reviewerId,
+        projectId,
+        `You were selected to review ${p.key}-${task.number}: ${task.title}.`,
+        task.id,
+      );
       return task;
     });
     changed(projectId);
@@ -802,6 +924,22 @@ export function createApplication() {
       "updated the task",
       task.id,
     );
+    if (data.assigneeId !== task.assigneeId)
+      await notification(
+        tx,
+        data.assigneeId,
+        task.projectId,
+        `You were assigned task ${task.number}: ${data.title}.`,
+        task.id,
+      );
+    if (data.reviewerId !== task.reviewerId)
+      await notification(
+        tx,
+        data.reviewerId,
+        task.projectId,
+        `You were selected to review task ${task.number}: ${data.title}.`,
+        task.id,
+      );
   });
   taskMutation("move", async (tx, req, task, manager) => {
     const data = moveSchema.parse(req.body);
@@ -862,6 +1000,13 @@ export function createApplication() {
       `submitted revision ${previous + 1} for review`,
       task.id,
     );
+    await notification(
+      tx,
+      task.reviewerId,
+      task.projectId,
+      `Review requested for task ${task.number}: ${task.title}.`,
+      task.id,
+    );
   });
   taskMutation("review", async (tx, req, task) => {
     const data = reviewSchema.parse(req.body);
@@ -888,6 +1033,15 @@ export function createApplication() {
       req.actor.id,
       task.projectId,
       data.decision === "APPROVED" ? "approved the work" : "requested changes",
+      task.id,
+    );
+    await notification(
+      tx,
+      task.assigneeId,
+      task.projectId,
+      data.decision === "APPROVED"
+        ? `Task ${task.number} was approved.`
+        : `Changes requested for task ${task.number}.`,
       task.id,
     );
   });
@@ -932,6 +1086,13 @@ export function createApplication() {
       req.actor.id,
       task.projectId,
       `reopened the task: ${data.note}`,
+      task.id,
+    );
+    await notification(
+      tx,
+      task.assigneeId,
+      task.projectId,
+      `Task ${task.number} was reopened.`,
       task.id,
     );
   });
@@ -1074,7 +1235,14 @@ export function createApplication() {
     }
   }, 30000);
   sweep.unref();
-  http.on("close", () => clearInterval(sweep));
+  const demoSweep = setInterval(() => {
+    void cleanupExpiredDemos().catch(() => undefined);
+  }, 3600000);
+  demoSweep.unref();
+  http.on("close", () => {
+    clearInterval(sweep);
+    clearInterval(demoSweep);
+  });
   app.use("/api", (_req, res) =>
     res.status(404).json({ error: "Endpoint not found." }),
   );
