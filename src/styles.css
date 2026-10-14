@@ -229,7 +229,7 @@ a:focus-visible {
   background: var(--indigo);
   border-radius: 8px;
 }
-.workspace-picker {
+.workspace-card {
   display: flex;
   align-items: center;
   gap: 9px;
@@ -239,11 +239,11 @@ a:focus-visible {
   padding: 10px 9px;
   background: #fff;
 }
-.workspace-picker > div {
+.workspace-card > div {
   flex: 1;
   min-width: 0;
 }
-.workspace-picker strong {
+.workspace-card strong {
   font-size: 11px;
   font-weight: 600;
   display: block;
@@ -251,7 +251,7 @@ a:focus-visible {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.workspace-picker small {
+.workspace-card small {
   color: var(--muted);
   display: block;
   font-size: 10px;
@@ -2074,7 +2074,7 @@ td strong {
 .muted,
 .eyebrow,
 .nav-heading,
-.workspace-picker small,
+.workspace-card small,
 .profile small,
 .workspace-tip p,
 .connection-state,

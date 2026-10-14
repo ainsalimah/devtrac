@@ -14,7 +14,6 @@ import {
   ArrowRight,
   Boxes,
   CheckCheck,
-  ChevronDown,
   FolderKanban,
   LayoutDashboard,
   LogOut,
@@ -364,6 +363,13 @@ export default function App() {
   });
   const projects = projectsQuery.data || [],
     users = usersQuery.data || [];
+  const activeMemberCount = users.filter((user) => user.active).length;
+  const workspaceSummary =
+    usersQuery.isPending || projectsQuery.isPending
+      ? "Loading team…"
+      : usersQuery.error || projectsQuery.error
+        ? "Team details unavailable"
+        : `${activeMemberCount} ${activeMemberCount === 1 ? "member" : "members"} · ${projects.length} ${projects.length === 1 ? "project" : "projects"}`;
   useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(""), 5000);
@@ -485,15 +491,14 @@ export default function App() {
               <X size={18} />
             </button>
           </div>
-          <div className="workspace-picker">
+          <div className="workspace-card">
             <span className="workspace-icon">
               {auth.workspace.name.slice(0, 1).toUpperCase()}
             </span>
             <div>
               <strong>{auth.workspace.name}</strong>
-              <small>Software team</small>
+              <small>{workspaceSummary}</small>
             </div>
-            <ChevronDown size={14} />
           </div>
           <nav onClick={() => setMobile(false)}>
             <span className="nav-heading">WORKSPACE</span>
