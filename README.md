@@ -2,6 +2,8 @@
 
 DevTrack adalah aplikasi manajemen proyek untuk tim pengembang perangkat lunak. Anggota dapat membagi tugas, mengirim hasil kerja, meminta revisi, dan menyelesaikan tugas setelah reviewer yang berbeda dari penanggung jawab menyetujuinya.
 
+**Coba aplikasi online:** [Buka DevTrack](https://devtrack-production-6fae.up.railway.app/). Buat workspace baru untuk mencoba aplikasi dengan akun sendiri.
+
 Aplikasi ini dibuat dengan React, TypeScript, Vite, Express, Prisma, PostgreSQL, dan Socket.IO. Antarmuka menggunakan Tailwind, komponen Radix bergaya shadcn, TanStack Query, dan dnd-kit. Semua nama, proyek, email, dan tautan dalam data demo bersifat fiktif.
 
 ## Menjalankan secara lokal di Windows
